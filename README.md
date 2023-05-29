@@ -9,9 +9,10 @@ Check out [Baton](https://github.com/conductorone/baton) to learn more about the
 ## Prerequisites
 
 1. 1Password Families, Teams, Business or Enterprise plan (https://1password.com/business-pricing).
-2. Installed 1Password [CLI Tool](https://developer.1password.com/docs/cli) on your local machine. For first time install please refer to the [Install](https://developer.1password.com/docs/cli/get-started/#install) chapter. It is not neccessary to do any other steps as the `baton-1password` will take care of creating an account and signing in.
+2. 1Password 8 app installed. Please refer to [requirements](https://developer.1password.com/docs/cli/get-started#requirements) based on your OS. 
+3. Installed 1Password [CLI Tool](https://developer.1password.com/docs/cli) on your local machine. For first time install please refer to the [Install](https://developer.1password.com/docs/cli/get-started/#install) chapter. It is not neccessary to do any other steps as the `baton-1password` will take care of creating an account and signing in.
    If you already have the CLI tool installed but need to upgrade it to the latest version please refer to [this](https://developer.1password.com/docs/cli/upgrade/) article.
-3. You will be prompted to add an account manually in case you don't already have it. Please follow the instructions in the CLI. All information will be entered to the 1Password CLI tool directly. Required account details are:
+4. You will be prompted to add an account manually in case you don't already have it. Please follow the instructions in the CLI. All information will be entered to the 1Password CLI tool directly. Required account details are:
 
 - sign-in address (https://support.1password.com/sign-in-troubleshooting/#if-youre-asked-for-a-sign-in-address)
 - secret key (https://support.1password.com/secret-key/)

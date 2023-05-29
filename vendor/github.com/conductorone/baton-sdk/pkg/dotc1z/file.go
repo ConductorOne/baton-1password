@@ -5,15 +5,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"syscall"
 
 	"github.com/klauspost/compress/zstd"
-)
-
-const (
-	maxDecodedSizeEnvVar    = "BATON_DECODER_MAX_DECODED_SIZE_MB"
-	maxDecoderMemorySizeEnv = "BATON_DECODER_MAX_MEMORY_MB"
+	"go.uber.org/zap"
 )
 
 func loadC1z(filePath string) (string, error) {
@@ -35,25 +30,7 @@ func loadC1z(filePath string) (string, error) {
 		}
 		defer c1zFile.Close()
 
-		var opts []DecoderOption
-
-		maxDecodedSizeVar := os.Getenv(maxDecodedSizeEnvVar)
-		if maxDecodedSizeVar != "" {
-			maxDecodedSize, err := strconv.ParseUint(maxDecodedSizeVar, 10, 64)
-			if err == nil {
-				opts = append(opts, WithDecoderMaxDecodedSize(maxDecodedSize*1024*1024))
-			}
-		}
-
-		maxDecoderMemorySizeVar := os.Getenv(maxDecoderMemorySizeEnv)
-		if maxDecoderMemorySizeVar != "" {
-			maxDecoderMemorySize, err := strconv.ParseUint(maxDecoderMemorySizeVar, 10, 64)
-			if err == nil {
-				opts = append(opts, WithDecoderMaxMemory(maxDecoderMemorySize*1024*1024))
-			}
-		}
-
-		r, err := NewDecoder(c1zFile, opts...)
+		r, err := NewDecoder(c1zFile)
 		if err != nil {
 			return "", err
 		}
@@ -79,7 +56,18 @@ func saveC1z(dbFilePath string, outputFilePath string) error {
 	if err != nil {
 		return err
 	}
-	defer dbFile.Close()
+	defer func() {
+		err = dbFile.Close()
+		if err != nil {
+			zap.L().Error("failed to close db file", zap.Error(err))
+		}
+
+		// Cleanup the database filepath. This should always be a file within a temp directory, so we remove the entire dir.
+		err = os.RemoveAll(filepath.Dir(dbFilePath))
+		if err != nil {
+			zap.L().Error("failed to remove db dir", zap.Error(err))
+		}
+	}()
 
 	outFile, err := os.OpenFile(outputFilePath, os.O_RDWR|os.O_CREATE|syscall.O_TRUNC, 0644)
 	if err != nil {

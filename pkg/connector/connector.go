@@ -48,6 +48,7 @@ func New(ctx context.Context, token string) (*OnePassword, error) {
 func (op *OnePassword) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
 	return &v2.ConnectorMetadata{
 		DisplayName: "1Password",
+		Description: "Connector that syncs users, groups, accounts, vaults and permissions from 1Password to Baton.",
 	}, nil
 }
 
