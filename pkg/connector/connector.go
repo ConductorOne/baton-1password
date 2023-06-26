@@ -4,37 +4,67 @@ import (
 	"context"
 	"fmt"
 
+	onepassword "github.com/ConductorOne/baton-1password/pkg/1password"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
+	"github.com/conductorone/baton-sdk/pkg/annotations"
+	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 )
 
-// TODO: implement your connector here
-type connectorImpl struct {
+var (
+	resourceTypeUser = &v2.ResourceType{
+		Id:          "user",
+		DisplayName: "User",
+		Traits: []v2.ResourceType_Trait{
+			v2.ResourceType_TRAIT_USER,
+		},
+	}
+	resourceTypeGroup = &v2.ResourceType{
+		Id:          "group",
+		DisplayName: "Group",
+		Traits: []v2.ResourceType_Trait{
+			v2.ResourceType_TRAIT_GROUP,
+		},
+	}
+	resourceTypeAccount = &v2.ResourceType{
+		Id:          "account",
+		DisplayName: "Account",
+	}
+	resourceTypeVault = &v2.ResourceType{
+		Id:          "vault",
+		DisplayName: "Vault",
+	}
+)
+
+type OnePassword struct {
+	cli *onepassword.Cli
 }
 
-func (c *connectorImpl) ListResourceTypes(ctx context.Context, req *v2.ResourceTypesServiceListResourceTypesRequest) (*v2.ResourceTypesServiceListResourceTypesResponse, error) {
-	return nil, fmt.Errorf("not implemented")
+func New(ctx context.Context, token string) (*OnePassword, error) {
+	return &OnePassword{
+		cli: onepassword.NewCli(token),
+	}, nil
 }
 
-func (c *connectorImpl) ListResources(ctx context.Context, req *v2.ResourcesServiceListResourcesRequest) (*v2.ResourcesServiceListResourcesResponse, error) {
-	return nil, fmt.Errorf("not implemented")
+func (op *OnePassword) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
+	return &v2.ConnectorMetadata{
+		DisplayName: "1Password",
+		Description: "Connector that syncs users, groups, accounts, vaults and permissions from 1Password to Baton.",
+	}, nil
 }
 
-func (c *connectorImpl) ListEntitlements(ctx context.Context, req *v2.EntitlementsServiceListEntitlementsRequest) (*v2.EntitlementsServiceListEntitlementsResponse, error) {
-	return nil, fmt.Errorf("not implemented")
+func (op *OnePassword) Validate(ctx context.Context) (annotations.Annotations, error) {
+	_, err := op.cli.GetSignedInAccount()
+	if err != nil {
+		return nil, fmt.Errorf("op-connector: failed to get signed in account: %w", err)
+	}
+	return nil, nil
 }
 
-func (c *connectorImpl) ListGrants(ctx context.Context, req *v2.GrantsServiceListGrantsRequest) (*v2.GrantsServiceListGrantsResponse, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (c *connectorImpl) GetMetadata(ctx context.Context, req *v2.ConnectorServiceGetMetadataRequest) (*v2.ConnectorServiceGetMetadataResponse, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (c *connectorImpl) Validate(ctx context.Context, req *v2.ConnectorServiceValidateRequest) (*v2.ConnectorServiceValidateResponse, error) {
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (c *connectorImpl) GetAsset(req *v2.AssetServiceGetAssetRequest, server v2.AssetService_GetAssetServer) error {
-	return fmt.Errorf("not implemented")
+func (op *OnePassword) ResourceSyncers(ctx context.Context) []connectorbuilder.ResourceSyncer {
+	return []connectorbuilder.ResourceSyncer{
+		userBuilder(op.cli),
+		groupBuilder(op.cli),
+		accountBuilder(op.cli),
+		vaultBuilder(op.cli),
+	}
 }
