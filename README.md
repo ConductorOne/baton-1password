@@ -12,12 +12,6 @@ Check out [Baton](https://github.com/conductorone/baton) to learn more about the
 2. 1Password 8 app installed. Please refer to [requirements](https://developer.1password.com/docs/cli/get-started#requirements) based on your OS. 
 3. Installed 1Password [CLI Tool](https://developer.1password.com/docs/cli) on your local machine. For first time install please refer to the [Install](https://developer.1password.com/docs/cli/get-started/#install) chapter. It is not neccessary to do any other steps as the `baton-1password` will take care of creating an account and signing in.
    If you already have the CLI tool installed but need to upgrade it to the latest version please refer to [this](https://developer.1password.com/docs/cli/upgrade/) article.
-4. You will be prompted to add an account manually in case you don't already have it. Please follow the instructions in the CLI. All information will be entered to the 1Password CLI tool directly. Required account details are:
-
-- sign-in address (https://support.1password.com/sign-in-troubleshooting/#if-youre-asked-for-a-sign-in-address)
-- secret key (https://support.1password.com/secret-key/)
-- email address (email address used to login to 1Password account)
-- account password (password used to login to 1Password account)
 
 ## brew
 
@@ -27,20 +21,13 @@ baton-1password
 baton resources
 ```
 
-## docker
-
-```
-docker run --rm -v $(pwd):/out -e BATON_ADDRESS=myaddress.1password.com baton-1password:latest -f "/out/sync.c1z"
-docker run --rm -v $(pwd):/out ghcr.io/conductorone/baton:latest -f "/out/sync.c1z" resources
-```
-
 ## source
 
 ```
 go install github.com/conductorone/baton/cmd/baton@main
 go install github.com/conductorone/baton-1password/cmd/baton-1password@main
 
-BATON_ADDRESS=myaddress.1password.com
+BATON_ADDRESS=myaddress.1password.com baton-1password
 baton resources
 ```
 
