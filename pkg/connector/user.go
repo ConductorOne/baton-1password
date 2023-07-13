@@ -42,7 +42,7 @@ func userResource(user onepassword.User, parentResourceID *v2.ResourceId) (*v2.R
 	var userStatus v2.UserTrait_Status_Status
 
 	switch user.State {
-	case "INACTIVE":
+	case "SUSPENDED":
 		userStatus = v2.UserTrait_Status_STATUS_DISABLED
 	case "ACTIVE":
 		userStatus = v2.UserTrait_Status_STATUS_ENABLED
