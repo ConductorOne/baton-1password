@@ -148,6 +148,39 @@ func (cli *Cli) ListVaultMembers(vaultId string) ([]User, error) {
 	return res, nil
 }
 
+// AddUserToGroup adds user to group.
+func (cli *Cli) AddUserToGroup(group, role, user string) error {
+	args := []string{"group", "user", "grant", "--group", group, "--role", role, "--user", user}
+
+	err := cli.executeCommand(args, nil)
+	if err != nil {
+		return fmt.Errorf("error adding user as a member: %w", err)
+	}
+
+	// role can either member or manager but in order for user to be a manager the member role needs to be assigned first.
+	// so we execute the command once more in order for member to become a manager.
+	if role == "manager" {
+		err := cli.executeCommand(args, nil)
+		if err != nil {
+			return fmt.Errorf("error adding user as a manager: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// RemoveUserFromGroup removes user from group.
+func (cli *Cli) RemoveUserFromGroup(group, user string) error {
+	args := []string{"group", "user", "revoke", "--group", group, "--user", user}
+
+	err := cli.executeCommand(args, nil)
+	if err != nil {
+		return fmt.Errorf("error removing user from group: %w", err)
+	}
+
+	return nil
+}
+
 func (cli *Cli) executeCommand(args []string, res interface{}) error {
 	defaultArgs := []string{"--format=json", "--session", cli.token}
 	defaultArgs = append(args, defaultArgs...)
@@ -156,6 +189,10 @@ func (cli *Cli) executeCommand(args []string, res interface{}) error {
 	output, err := cmd.Output()
 	if err != nil {
 		return fmt.Errorf("error: %w", err)
+	}
+
+	if res == nil {
+		return nil
 	}
 
 	if err := json.Unmarshal(output, &res); err != nil {
