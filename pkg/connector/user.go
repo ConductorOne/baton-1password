@@ -70,14 +70,14 @@ func userResource(user onepassword.User, parentResourceID *v2.ResourceId) (*v2.R
 	return ret, nil
 }
 
-func (u *userResourceType) List(_ context.Context, parentId *v2.ResourceId, _ *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+func (u *userResourceType) List(ctx context.Context, parentId *v2.ResourceId, _ *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
 	if parentId == nil {
 		return nil, "", nil, nil
 	}
 
 	var rv []*v2.Resource
 
-	users, err := u.cli.ListUsers()
+	users, err := u.cli.ListUsers(ctx)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -98,7 +98,7 @@ func (u *userResourceType) Entitlements(_ context.Context, _ *v2.Resource, _ *pa
 	return nil, "", nil, nil
 }
 
-func (u *userResourceType) Grants(_ context.Context, _ *v2.Resource, _ *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+func (u *userResourceType) Grants(ctx context.Context, _ *v2.Resource, _ *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
 	return nil, "", nil, nil
 }
 

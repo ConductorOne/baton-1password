@@ -61,14 +61,14 @@ func vaultResource(vault onepassword.Vault, parentResourceID *v2.ResourceId) (*v
 	return ret, nil
 }
 
-func (g *vaultResourceType) List(_ context.Context, parentId *v2.ResourceId, _ *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+func (g *vaultResourceType) List(ctx context.Context, parentId *v2.ResourceId, _ *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
 	if parentId == nil {
 		return nil, "", nil, nil
 	}
 
 	var rv []*v2.Resource
 
-	vaults, err := g.cli.ListVaults()
+	vaults, err := g.cli.ListVaults(ctx)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -85,10 +85,10 @@ func (g *vaultResourceType) List(_ context.Context, parentId *v2.ResourceId, _ *
 	return rv, "", nil, nil
 }
 
-func (g *vaultResourceType) Entitlements(_ context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
+func (g *vaultResourceType) Entitlements(ctx context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Entitlement, string, annotations.Annotations, error) {
 	var rv []*v2.Entitlement
 
-	account, err := g.cli.GetAccount()
+	account, err := g.cli.GetAccount(ctx)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -115,17 +115,17 @@ func (g *vaultResourceType) Entitlements(_ context.Context, resource *v2.Resourc
 	return rv, "", nil, nil
 }
 
-func (g *vaultResourceType) Grants(_ context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+func (g *vaultResourceType) Grants(ctx context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
 	var rv []*v2.Grant
 	var userPermissionGrant *v2.Grant
 	var groupPermissionGrant *v2.Grant
 
-	account, err := g.cli.GetAccount()
+	account, err := g.cli.GetAccount(ctx)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	vaultMembers, err := g.cli.ListVaultMembers(resource.Id.Resource)
+	vaultMembers, err := g.cli.ListVaultMembers(ctx, resource.Id.Resource)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -150,14 +150,14 @@ func (g *vaultResourceType) Grants(_ context.Context, resource *v2.Resource, _ *
 		}
 	}
 
-	vaultGroups, err := g.cli.ListVaultGroups(resource.Id.Resource)
+	vaultGroups, err := g.cli.ListVaultGroups(ctx, resource.Id.Resource)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
 	for _, group := range vaultGroups {
 		groupCopy := group
-		groupMembers, err := g.cli.ListGroupMembers(groupCopy.ID)
+		groupMembers, err := g.cli.ListGroupMembers(ctx, groupCopy.ID)
 		if err != nil {
 			return nil, "", nil, err
 		}

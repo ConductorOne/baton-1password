@@ -56,14 +56,14 @@ func groupResource(group onepassword.Group, parentResourceID *v2.ResourceId) (*v
 	return ret, nil
 }
 
-func (g *groupResourceType) List(_ context.Context, parentId *v2.ResourceId, _ *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+func (g *groupResourceType) List(ctx context.Context, parentId *v2.ResourceId, _ *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
 	if parentId == nil {
 		return nil, "", nil, nil
 	}
 
 	var rv []*v2.Resource
 
-	groups, err := g.cli.ListGroups()
+	groups, err := g.cli.ListGroups(ctx)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -93,10 +93,10 @@ func (g *groupResourceType) Entitlements(_ context.Context, resource *v2.Resourc
 	return rv, "", nil, nil
 }
 
-func (g *groupResourceType) Grants(_ context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+func (g *groupResourceType) Grants(ctx context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
 	var rv []*v2.Grant
 
-	groupMembers, err := g.cli.ListGroupMembers(resource.Id.Resource)
+	groupMembers, err := g.cli.ListGroupMembers(ctx, resource.Id.Resource)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -132,7 +132,7 @@ func (o *groupResourceType) Grant(ctx context.Context, principal *v2.Resource, e
 		return nil, fmt.Errorf("baton-1password: only users can be granted group membership")
 	}
 
-	err := o.cli.AddUserToGroup(entitlement.Resource.Id.Resource, entitlement.Slug, principal.Id.Resource)
+	err := o.cli.AddUserToGroup(ctx, entitlement.Resource.Id.Resource, entitlement.Slug, principal.Id.Resource)
 
 	if err != nil {
 		return nil, fmt.Errorf("baton-1password: failed adding user to group")
@@ -156,7 +156,7 @@ func (o *groupResourceType) Revoke(ctx context.Context, grant *v2.Grant) (annota
 		return nil, errors.New("baton-1password: only users can have group membership revoked")
 	}
 
-	err := o.cli.RemoveUserFromGroup(entitlement.Resource.Id.Resource, principal.Id.Resource)
+	err := o.cli.RemoveUserFromGroup(ctx, entitlement.Resource.Id.Resource, principal.Id.Resource)
 
 	if err != nil {
 		return nil, errors.New("baton-1password: failed removing user from group")

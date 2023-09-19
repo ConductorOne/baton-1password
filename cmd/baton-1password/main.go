@@ -45,7 +45,7 @@ func getConnector(ctx context.Context, cfg *config) (types.ConnectorServer, erro
 	// temp file for session token
 	tmpToken, _ := os.ReadFile(sessionTempFile)
 	if string(tmpToken) == "" {
-		token, err := onepassword.SignIn(cfg.Address)
+		token, err := onepassword.SignIn(ctx, cfg.Address)
 		if err != nil {
 			l.Error("failed to login: ", zap.Error(err))
 			return nil, err

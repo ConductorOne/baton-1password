@@ -40,10 +40,10 @@ func accountResource(account onepassword.Account) (*v2.Resource, error) {
 	return ret, nil
 }
 
-func (a *accountResourceType) List(_ context.Context, _ *v2.ResourceId, _ *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
+func (a *accountResourceType) List(ctx context.Context, _ *v2.ResourceId, _ *pagination.Token) ([]*v2.Resource, string, annotations.Annotations, error) {
 	var rv []*v2.Resource
 
-	account, err := a.cli.GetAccount()
+	account, err := a.cli.GetAccount(ctx)
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -68,9 +68,9 @@ func (a *accountResourceType) Entitlements(_ context.Context, resource *v2.Resou
 	return rv, "", nil, nil
 }
 
-func (a *accountResourceType) Grants(_ context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+func (a *accountResourceType) Grants(ctx context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
 	var rv []*v2.Grant
-	users, err := a.cli.ListUsers()
+	users, err := a.cli.ListUsers(ctx)
 	if err != nil {
 		return nil, "", nil, err
 	}
