@@ -54,7 +54,7 @@ func (op *OnePassword) Metadata(ctx context.Context) (*v2.ConnectorMetadata, err
 }
 
 func (op *OnePassword) Validate(ctx context.Context) (annotations.Annotations, error) {
-	_, err := op.cli.GetSignedInAccount()
+	_, err := op.cli.GetSignedInAccount(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("op-connector: failed to get signed in account: %w", err)
 	}
