@@ -212,6 +212,7 @@ func (cli *Cli) executeCommand(ctx context.Context, args []string, res interface
 				"error executing command",
 				zap.Error(err),
 				zap.String("stderr", string(exitErr.Stderr)),
+				zap.String("stdout", string(output)),
 				zap.Int("exit_code", exitErr.ExitCode()),
 			)
 		}
