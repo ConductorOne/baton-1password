@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	onepassword "github.com/ConductorOne/baton-1password/pkg/1password"
-	"github.com/ConductorOne/baton-1password/pkg/connector"
+	onepassword "github.com/conductorone/baton-1password/pkg/1password"
+	"github.com/conductorone/baton-1password/pkg/connector"
 	"github.com/conductorone/baton-sdk/pkg/cli"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/types"

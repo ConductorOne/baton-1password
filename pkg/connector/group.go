@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	onepassword "github.com/ConductorOne/baton-1password/pkg/1password"
+	onepassword "github.com/conductorone/baton-1password/pkg/1password"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
