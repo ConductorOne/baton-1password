@@ -200,7 +200,10 @@ func (g *vaultResourceType) Grant(ctx context.Context, principal *v2.Resource, e
 	permission := p[len(p)-1]
 	// Formatting to replace spaces with _
 	permission = strings.Replace(permission, " ", "_", -1)
-
+	// If the permission is view_and_copy_passwords, we need to add view_items as well or the command will fail
+	if permission == "view_and_copy_passwords" {
+		permission = "view_and_copy_passwords,view_items"
+	}
 	username := principal.DisplayName
 	vaultId := entitlement.Resource.Id.Resource
 
