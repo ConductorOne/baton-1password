@@ -40,6 +40,29 @@ var businessPermissions = map[string]string{
 	"manage_vault":            "manage vault",
 }
 
+// Map of permissions to their dependencies.
+// This is used to determine the permissions that need to be granted when a user is granted a permission.
+var dependencyMap = map[string][]string{
+	"create_items":            {"view_items"},
+	"view_and_copy_passwords": {"view_items"},
+	"edit_items":              {"view_and_copy_passwords", "view_items"},
+	"archive_items":           {"edit_items", "view_and_copy_passwords", "view_items"},
+	"delete_items":            {"edit_items", "view_and_copy_passwords", "view_items"},
+	"view_item_history":       {"view_and_copy_passwords", "view_items"},
+	"import_items":            {"create_items", "view_items"},
+	"export_items":            {"view_item_history", "view_and_copy_passwords", "view_items"},
+	"copy_and_share_items":    {"view_item_history", "view_and_copy_passwords", "view_items"},
+	"print_items":             {"view_item_history", "view_and_copy_passwords", "view_items"},
+}
+
+// addPermissionDeps Takes a permission, returns it and its dependencies in a comma-separated string.
+func addPermissionDeps(permission string) string {
+	res := []string{permission}
+	deps := dependencyMap[permission]
+	res = append(res, deps...)
+	return strings.Join(res, ",")
+}
+
 const businessAccountType = "BUSINESS"
 
 type vaultResourceType struct {
@@ -197,13 +220,12 @@ func (g *vaultResourceType) Grant(ctx context.Context, principal *v2.Resource, e
 	grantString := entitlement.Id
 	// Split out and get the permission from the grant string.
 	p := strings.Split(grantString, ":")
-	permission := p[len(p)-1]
+	permissionGrant := p[len(p)-1]
 	// Formatting to replace spaces with _
-	permission = strings.Replace(permission, " ", "_", -1)
-	// If the permission is view_and_copy_passwords, we need to add view_items as well or the command will fail
-	if permission == "view_and_copy_passwords" {
-		permission = "view_and_copy_passwords,view_items"
-	}
+	permissionGrant = strings.Replace(permissionGrant, " ", "_", -1)
+	// add the dependencies to the permission
+	permission := addPermissionDeps(permissionGrant)
+
 	username := principal.DisplayName
 	vaultId := entitlement.Resource.Id.Resource
 
@@ -238,9 +260,11 @@ func (g *vaultResourceType) Revoke(ctx context.Context, grant *v2.Grant) (annota
 	grantString := entitlement.Id
 	// Split out and get the permission from the grant string.
 	p := strings.Split(grantString, ":")
-	permission := p[len(p)-1]
+	permissionGrant := p[len(p)-1]
 	// Formatting to replace spaces with _
-	permission = strings.Replace(permission, " ", "_", -1)
+	permissionGrant = strings.Replace(permissionGrant, " ", "_", -1)
+	// add the dependencies to the permission
+	permission := addPermissionDeps(permissionGrant)
 
 	principal := grant.Principal
 	username := principal.DisplayName
