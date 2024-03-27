@@ -2,6 +2,11 @@ package connector
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
+	"strings"
 
 	onepassword "github.com/conductorone/baton-1password/pkg/1password"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
@@ -33,6 +38,29 @@ var businessPermissions = map[string]string{
 	"copy_and_share_items":    "copy and share items",
 	"print_items":             "print items",
 	"manage_vault":            "manage vault",
+}
+
+// Map of permissions to their dependencies.
+// This is used to determine the permissions that need to be granted when a user is granted a permission.
+var dependencyMap = map[string][]string{
+	"create_items":            {"view_items"},
+	"view_and_copy_passwords": {"view_items"},
+	"edit_items":              {"view_and_copy_passwords", "view_items"},
+	"archive_items":           {"edit_items", "view_and_copy_passwords", "view_items"},
+	"delete_items":            {"edit_items", "view_and_copy_passwords", "view_items"},
+	"view_item_history":       {"view_and_copy_passwords", "view_items"},
+	"import_items":            {"create_items", "view_items"},
+	"export_items":            {"view_item_history", "view_and_copy_passwords", "view_items"},
+	"copy_and_share_items":    {"view_item_history", "view_and_copy_passwords", "view_items"},
+	"print_items":             {"view_item_history", "view_and_copy_passwords", "view_items"},
+}
+
+// addPermissionDeps Takes a permission, returns it and its dependencies in a comma-separated string.
+func addPermissionDeps(permission string) string {
+	res := []string{permission}
+	deps := dependencyMap[permission]
+	res = append(res, deps...)
+	return strings.Join(res, ",")
 }
 
 const businessAccountType = "BUSINESS"
@@ -185,6 +213,85 @@ func (g *vaultResourceType) Grants(ctx context.Context, resource *v2.Resource, _
 	}
 
 	return rv, "", nil, nil
+}
+
+func (g *vaultResourceType) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) (annotations.Annotations, error) {
+	l := ctxzap.Extract(ctx)
+	grantString := entitlement.Id
+	// Split out and get the permission from the grant string.
+	p := strings.Split(grantString, ":")
+	permissionGrant := p[len(p)-1]
+	// Formatting to replace spaces with _
+	permissionGrant = strings.Replace(permissionGrant, " ", "_", -1)
+	// add the dependencies to the permission
+	permission := addPermissionDeps(permissionGrant)
+
+	username := principal.DisplayName
+	vaultId := entitlement.Resource.Id.Resource
+
+	l.Info("baton-1password: granting vault access",
+		zap.String("principal_id", principal.Id.Resource),
+		zap.String("vaultId", vaultId),
+		zap.String("username", username),
+		zap.String("permission", permission),
+		zap.String("vault_id", entitlement.Resource.Id.Resource),
+	)
+	if principal.Id.ResourceType != resourceTypeUser.Id && principal.Id.ResourceType != resourceTypeGroup.Id {
+		l.Warn(
+			"baton-1password: only users or groups can be granted vault access",
+			zap.String("principal_type", principal.Id.ResourceType),
+			zap.String("principal_id", principal.Id.Resource),
+		)
+		return nil, fmt.Errorf("baton-1password: only users or groups can be granted vault access")
+	}
+
+	err := g.cli.AddUserToVault(ctx, vaultId, username, permission)
+
+	if err != nil {
+		return nil, fmt.Errorf("baton-1password: failed granting to vault access")
+	}
+
+	return nil, nil
+}
+
+func (g *vaultResourceType) Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error) {
+	l := ctxzap.Extract(ctx)
+	entitlement := grant.Entitlement
+	grantString := entitlement.Id
+	// Split out and get the permission from the grant string.
+	p := strings.Split(grantString, ":")
+	permissionGrant := p[len(p)-1]
+	// Formatting to replace spaces with _
+	permissionGrant = strings.Replace(permissionGrant, " ", "_", -1)
+	// add the dependencies to the permission
+	permission := addPermissionDeps(permissionGrant)
+
+	principal := grant.Principal
+	username := principal.DisplayName
+	vaultId := entitlement.Resource.Id.Resource
+	l.Info("baton-1password: revoking vault access",
+		zap.String("principal_id", principal.Id.Resource),
+		zap.String("vaultId", vaultId),
+		zap.String("username", username),
+		zap.String("permission", permission),
+		zap.String("vault_id", entitlement.Resource.Id.Resource),
+	)
+	if principal.Id.ResourceType != resourceTypeUser.Id {
+		l.Warn(
+			"baton-1password: only users can have group membership revoked",
+			zap.String("principal_type", principal.Id.ResourceType),
+			zap.String("principal_id", principal.Id.Resource),
+		)
+		return nil, errors.New("baton-1password: only users can have group membership revoked")
+	}
+
+	err := g.cli.RemoveUserFromVault(ctx, vaultId, username, permission)
+
+	if err != nil {
+		return nil, errors.New("baton-1password: failed removing user from group")
+	}
+
+	return nil, nil
 }
 
 func vaultBuilder(cli *onepassword.Cli) *vaultResourceType {

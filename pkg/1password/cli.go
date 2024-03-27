@@ -197,6 +197,30 @@ func (cli *Cli) RemoveUserFromGroup(ctx context.Context, group, user string) err
 	return nil
 }
 
+// AddUserToVault adds user to vault.
+func (cli *Cli) AddUserToVault(ctx context.Context, vault, user, permissions string) error {
+	args := []string{"vault", "user", "grant", "--vault", vault, "--user", user, "--permissions", permissions}
+
+	err := cli.executeCommand(ctx, args, nil)
+	if err != nil {
+		return fmt.Errorf("error adding user to vault: %w", err)
+	}
+
+	return nil
+}
+
+// RemoveUserFromVault removes user from vault.
+func (cli *Cli) RemoveUserFromVault(ctx context.Context, vault, user, permissions string) error {
+	args := []string{"vault", "user", "revoke", "--vault", vault, "--user", user, "--permissions", permissions}
+
+	err := cli.executeCommand(ctx, args, nil)
+	if err != nil {
+		return fmt.Errorf("error removing user from vault: %w", err)
+	}
+
+	return nil
+}
+
 func (cli *Cli) executeCommand(ctx context.Context, args []string, res interface{}) error {
 	l := ctxzap.Extract(ctx)
 
