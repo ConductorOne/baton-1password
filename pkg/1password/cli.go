@@ -210,6 +210,9 @@ func (cli *Cli) AddUserToVault(ctx context.Context, vault, user, permissions str
 }
 
 // RemoveUserFromVault removes user from vault.
+// This will error out if the principal's grant was inherited via a group membership with permissions to the vault.
+// 1Password CLI errors with "the accessor doesn't have any permissions" if the grant is inherited from a group.
+// Avoid mixing group and individual grants to vaults when using just-in-time provisioning.
 func (cli *Cli) RemoveUserFromVault(ctx context.Context, vault, user, permissions string) error {
 	args := []string{"vault", "user", "revoke", "--vault", vault, "--user", user, "--permissions", permissions}
 

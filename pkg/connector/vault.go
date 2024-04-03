@@ -4,8 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"go.uber.org/zap"
+
 	"strings"
 
 	onepassword "github.com/conductorone/baton-1password/pkg/1password"
@@ -13,8 +12,10 @@ import (
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
 	ent "github.com/conductorone/baton-sdk/pkg/types/entitlement"
-	grant "github.com/conductorone/baton-sdk/pkg/types/grant"
-	resource "github.com/conductorone/baton-sdk/pkg/types/resource"
+	"github.com/conductorone/baton-sdk/pkg/types/grant"
+	"github.com/conductorone/baton-sdk/pkg/types/resource"
+	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"go.uber.org/zap"
 )
 
 // 1Password Teams and 1Password Families.
@@ -215,6 +216,9 @@ func (g *vaultResourceType) Grants(ctx context.Context, resource *v2.Resource, _
 	return rv, "", nil, nil
 }
 
+// Grant a user access to a vault.
+// grants to vaults must be granted and revoked from individual users only when using just-in-time provisioning.
+// See Revoke limitations for more details.
 func (g *vaultResourceType) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) (annotations.Annotations, error) {
 	l := ctxzap.Extract(ctx)
 	grantString := entitlement.Id
@@ -231,13 +235,12 @@ func (g *vaultResourceType) Grant(ctx context.Context, principal *v2.Resource, e
 
 	l.Info("baton-1password: granting vault access",
 		zap.String("principal_id", principal.Id.Resource),
-		zap.String("vaultId", vaultId),
+		zap.String("vault_id", vaultId),
 		zap.String("username", username),
 		zap.String("permission", permission),
-		zap.String("vault_id", entitlement.Resource.Id.Resource),
 	)
 	if principal.Id.ResourceType != resourceTypeUser.Id && principal.Id.ResourceType != resourceTypeGroup.Id {
-		l.Warn(
+		l.Error(
 			"baton-1password: only users or groups can be granted vault access",
 			zap.String("principal_type", principal.Id.ResourceType),
 			zap.String("principal_id", principal.Id.Resource),
@@ -254,6 +257,10 @@ func (g *vaultResourceType) Grant(ctx context.Context, principal *v2.Resource, e
 	return nil, nil
 }
 
+// Revoke a user's access to a vault.
+// This will error out if the principal's grant was inherited via a group membership with permissions to the vault.
+// 1Password CLI errors with "the accessor doesn't have any permissions" if the grant is inherited from a group.
+// Avoid mixing group and individual grants to vaults when using just-in-time provisioning.
 func (g *vaultResourceType) Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error) {
 	l := ctxzap.Extract(ctx)
 	entitlement := grant.Entitlement
@@ -271,13 +278,12 @@ func (g *vaultResourceType) Revoke(ctx context.Context, grant *v2.Grant) (annota
 	vaultId := entitlement.Resource.Id.Resource
 	l.Info("baton-1password: revoking vault access",
 		zap.String("principal_id", principal.Id.Resource),
-		zap.String("vaultId", vaultId),
+		zap.String("vault_id", vaultId),
 		zap.String("username", username),
 		zap.String("permission", permission),
-		zap.String("vault_id", entitlement.Resource.Id.Resource),
 	)
 	if principal.Id.ResourceType != resourceTypeUser.Id {
-		l.Warn(
+		l.Error(
 			"baton-1password: only users can have group membership revoked",
 			zap.String("principal_type", principal.Id.ResourceType),
 			zap.String("principal_id", principal.Id.Resource),
