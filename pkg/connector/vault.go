@@ -222,7 +222,7 @@ func (g *vaultResourceType) Grant(ctx context.Context, principal *v2.Resource, e
 	p := strings.Split(grantString, ":")
 	permissionGrant := p[len(p)-1]
 	// Formatting to replace spaces with _
-	permissionGrant = strings.Replace(permissionGrant, " ", "_", -1)
+	permissionGrant = strings.ReplaceAll(permissionGrant, " ", "_")
 	// add the dependencies to the permission
 	permission := addPermissionDeps(permissionGrant)
 
@@ -262,7 +262,7 @@ func (g *vaultResourceType) Revoke(ctx context.Context, grant *v2.Grant) (annota
 	p := strings.Split(grantString, ":")
 	permissionGrant := p[len(p)-1]
 	// Formatting to replace spaces with _
-	permissionGrant = strings.Replace(permissionGrant, " ", "_", -1)
+	permissionGrant = strings.ReplaceAll(permissionGrant, " ", "_")
 	// add the dependencies to the permission
 	permission := addPermissionDeps(permissionGrant)
 
