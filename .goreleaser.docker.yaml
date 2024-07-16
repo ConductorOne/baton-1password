@@ -1,3 +1,4 @@
+version: 2
 project_name: baton-1password
 builds:
   - binary: baton-1password
@@ -51,4 +52,4 @@ checksum:
 release:
   disable: true
 changelog:
-  skip: true
+  disable: true
