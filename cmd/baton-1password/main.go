@@ -6,67 +6,76 @@ import (
 	"os"
 
 	onepassword "github.com/conductorone/baton-1password/pkg/1password"
+	config2 "github.com/conductorone/baton-1password/pkg/config"
 	"github.com/conductorone/baton-1password/pkg/connector"
-	"github.com/conductorone/baton-sdk/pkg/cli"
+	"github.com/conductorone/baton-sdk/pkg/config"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
+	"github.com/spf13/viper"
 	"go.uber.org/zap"
 )
 
-var version = "dev"
-var sessionTempFile = "/tmp/baton-1password-session"
+var (
+	connectorName = "baton-1password"
+	version       = "dev"
+)
 
 func main() {
 	ctx := context.Background()
-	cfg := &config{}
-	l := ctxzap.Extract(ctx)
-	cmd, err := cli.NewCmd(ctx, "baton-1password", cfg, validateConfig, getConnector)
+
+	_, cmd, err := config.DefineConfiguration(
+		ctx,
+		connectorName,
+		getConnector,
+		config2.ConfigurationSchema,
+	)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
+
 	cmd.Version = version
-	cmdFlags(cmd)
+
 	err = cmd.Execute()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
-	// remove tmp file
-	e := os.Remove(sessionTempFile)
-	if e != nil {
-		l.Error("error removing file", zap.Error(err))
-	}
 }
 
-func getConnector(ctx context.Context, cfg *config) (types.ConnectorServer, error) {
+func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, error) {
 	l := ctxzap.Extract(ctx)
-	// temp file for session token
-	tmpToken, _ := os.ReadFile(sessionTempFile)
-	if string(tmpToken) == "" {
-		token, err := onepassword.SignIn(ctx, cfg.Address)
-		if err != nil {
-			l.Error("failed to login: ", zap.Error(err))
-			return nil, err
-		}
-		e := os.WriteFile(sessionTempFile, []byte(token), 0600)
-		if e != nil {
-			l.Error("error writing file", zap.Error(e))
+	limitVaultPerms := v.GetStringSlice(config2.LimitVaultPermissionsField.FieldName)
+	if len(limitVaultPerms) > 0 {
+		validPerms := connector.AllVaultPermissions()
+		for _, perm := range limitVaultPerms {
+			if !validPerms.Contains(perm) {
+				l.Error("invalid vault permission", zap.String("permission", perm))
+				return nil, fmt.Errorf("invalid vault permission: %s", perm)
+			}
 		}
 	}
 
-	cb, err := connector.New(ctx, string(tmpToken))
+	token, err := onepassword.SignIn(ctx, v.GetString(config2.AddressField.FieldName))
+	if err != nil {
+		l.Error("failed to login: ", zap.Error(err))
+		return nil, err
+	}
+
+	cb, err := connector.New(
+		ctx,
+		token,
+		limitVaultPerms,
+	)
 	if err != nil {
 		l.Error("error creating connector", zap.Error(err))
 		return nil, err
 	}
-
-	c, err := connectorbuilder.NewConnector(ctx, cb)
+	connector, err := connectorbuilder.NewConnector(ctx, cb)
 	if err != nil {
 		l.Error("error creating connector", zap.Error(err))
 		return nil, err
 	}
-
-	return c, nil
+	return connector, nil
 }
