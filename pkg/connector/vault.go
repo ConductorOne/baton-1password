@@ -14,9 +14,22 @@ import (
 	ent "github.com/conductorone/baton-sdk/pkg/types/entitlement"
 	"github.com/conductorone/baton-sdk/pkg/types/grant"
 	"github.com/conductorone/baton-sdk/pkg/types/resource"
+	mapset "github.com/deckarep/golang-set/v2"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 )
+
+func AllVaultPermissions() mapset.Set[string] {
+	rv := mapset.NewSet[string]()
+	rv.Add(memberEntitlement)
+	for permission := range basicPermissions {
+		rv.Add(permission)
+	}
+	for permission := range businessPermissions {
+		rv.Add(permission)
+	}
+	return rv
+}
 
 // 1Password Teams and 1Password Families.
 var basicPermissions = map[string]string{
@@ -67,8 +80,9 @@ func addPermissionDeps(permission string) string {
 const businessAccountType = "BUSINESS"
 
 type vaultResourceType struct {
-	resourceType *v2.ResourceType
-	cli          *onepassword.Cli
+	resourceType          *v2.ResourceType
+	cli                   *onepassword.Cli
+	limitVaultPermissions mapset.Set[string]
 }
 
 func (g *vaultResourceType) ResourceType(_ context.Context) *v2.ResourceType {
@@ -123,18 +137,34 @@ func (g *vaultResourceType) Entitlements(ctx context.Context, resource *v2.Resou
 	}
 
 	memberOptions := PopulateOptions(resource.DisplayName, memberEntitlement, resource.Id.ResourceType)
-	memberEntitlement := ent.NewAssignmentEntitlement(resource, memberEntitlement, memberOptions...)
-	rv = append(rv, memberEntitlement)
+	membetEnt := ent.NewAssignmentEntitlement(resource, memberEntitlement, memberOptions...)
+	if g.limitVaultPermissions != nil {
+		if g.limitVaultPermissions.Contains(memberEntitlement) {
+			rv = append(rv, membetEnt)
+		}
+	} else {
+		rv = append(rv, membetEnt)
+	}
 
 	// Business accounts have more granular permissions.
 	if account.Type == businessAccountType {
-		for _, permission := range businessPermissions {
+		for permName, permission := range businessPermissions {
+			if g.limitVaultPermissions != nil {
+				if !g.limitVaultPermissions.Contains(permName) {
+					continue
+				}
+			}
 			businessOptions := PopulateOptions(resource.DisplayName, permission, resource.Id.ResourceType)
 			businessEntitlement := ent.NewPermissionEntitlement(resource, permission, businessOptions...)
 			rv = append(rv, businessEntitlement)
 		}
 	} else {
-		for _, permission := range basicPermissions {
+		for permName, permission := range basicPermissions {
+			if g.limitVaultPermissions != nil {
+				if !g.limitVaultPermissions.Contains(permName) {
+					continue
+				}
+			}
 			basicOptions := PopulateOptions(resource.DisplayName, permission, resource.Id.ResourceType)
 			basicEntitlement := ent.NewPermissionEntitlement(resource, permission, basicOptions...)
 			rv = append(rv, basicEntitlement)
@@ -144,54 +174,43 @@ func (g *vaultResourceType) Entitlements(ctx context.Context, resource *v2.Resou
 	return rv, "", nil, nil
 }
 
-func (g *vaultResourceType) Grants(ctx context.Context, resource *v2.Resource, _ *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
+const (
+	vaultListUsersOp  = "vault-list-users"
+	vaultListGroupsOp = "vault-list-groups"
+)
+
+func (g *vaultResourceType) Grants(ctx context.Context, resource *v2.Resource, pToken *pagination.Token) ([]*v2.Grant, string, annotations.Annotations, error) {
 	var rv []*v2.Grant
-	var userPermissionGrant *v2.Grant
-	var groupPermissionGrant *v2.Grant
+	bag := &pagination.Bag{}
+	err := bag.Unmarshal(pToken.Token)
+	if err != nil {
+		return nil, "", nil, err
+	}
+	if bag.Current() == nil {
+		bag.Push(pagination.PageState{
+			ResourceTypeID: vaultListUsersOp,
+			ResourceID:     resource.Id.Resource,
+		})
+		bag.Push(pagination.PageState{
+			ResourceTypeID: vaultListGroupsOp,
+			ResourceID:     resource.Id.Resource,
+		})
+	}
 
 	account, err := g.cli.GetAccount(ctx)
 	if err != nil {
 		return nil, "", nil, err
 	}
 
-	vaultMembers, err := g.cli.ListVaultMembers(ctx, resource.Id.Resource)
-	if err != nil {
-		return nil, "", nil, err
-	}
-
-	for _, member := range vaultMembers {
-		memberCopy := member
-		ur, err := userResource(memberCopy, resource.Id)
+	switch bag.Current().ResourceTypeID {
+	case vaultListUsersOp:
+		bag.Pop()
+		vaultMembers, err := g.cli.ListVaultMembers(ctx, resource.Id.Resource)
 		if err != nil {
 			return nil, "", nil, err
 		}
 
-		membershipGrant := grant.NewGrant(resource, memberEntitlement, ur.Id)
-		rv = append(rv, membershipGrant)
-
-		for _, permission := range member.Permissions {
-			if account.Type == businessAccountType {
-				userPermissionGrant = grant.NewGrant(resource, businessPermissions[permission], ur.Id)
-			} else {
-				userPermissionGrant = grant.NewGrant(resource, basicPermissions[permission], ur.Id)
-			}
-			rv = append(rv, userPermissionGrant)
-		}
-	}
-
-	vaultGroups, err := g.cli.ListVaultGroups(ctx, resource.Id.Resource)
-	if err != nil {
-		return nil, "", nil, err
-	}
-
-	for _, group := range vaultGroups {
-		groupCopy := group
-		groupMembers, err := g.cli.ListGroupMembers(ctx, groupCopy.ID)
-		if err != nil {
-			return nil, "", nil, err
-		}
-
-		for _, member := range groupMembers {
+		for _, member := range vaultMembers {
 			memberCopy := member
 			ur, err := userResource(memberCopy, resource.Id)
 			if err != nil {
@@ -199,21 +218,90 @@ func (g *vaultResourceType) Grants(ctx context.Context, resource *v2.Resource, _
 			}
 
 			membershipGrant := grant.NewGrant(resource, memberEntitlement, ur.Id)
-			rv = append(rv, membershipGrant)
-
-			// add group permissions to all users in the group.
-			for _, permission := range group.Permissions {
-				if account.Type == businessAccountType {
-					groupPermissionGrant = grant.NewGrant(resource, businessPermissions[permission], ur.Id)
-				} else {
-					groupPermissionGrant = grant.NewGrant(resource, basicPermissions[permission], ur.Id)
+			if g.limitVaultPermissions != nil {
+				if g.limitVaultPermissions.Contains(memberEntitlement) {
+					rv = append(rv, membershipGrant)
 				}
-				rv = append(rv, groupPermissionGrant)
+			} else {
+				rv = append(rv, membershipGrant)
+			}
+
+			for _, permission := range member.Permissions {
+				if g.limitVaultPermissions != nil {
+					if !g.limitVaultPermissions.Contains(permission) {
+						continue
+					}
+				}
+
+				var userPermissionGrant *v2.Grant
+				if account.Type == businessAccountType {
+					userPermissionGrant = grant.NewGrant(resource, businessPermissions[permission], ur.Id)
+				} else {
+					userPermissionGrant = grant.NewGrant(resource, basicPermissions[permission], ur.Id)
+				}
+				rv = append(rv, userPermissionGrant)
 			}
 		}
+	case vaultListGroupsOp:
+		bag.Pop()
+		vaultGroups, err := g.cli.ListVaultGroups(ctx, resource.Id.Resource)
+		if err != nil {
+			return nil, "", nil, err
+		}
+
+		for _, group := range vaultGroups {
+			groupCopy := group
+			groupMembers, err := g.cli.ListGroupMembers(ctx, groupCopy.ID)
+			if err != nil {
+				return nil, "", nil, err
+			}
+
+			for _, member := range groupMembers {
+				memberCopy := member
+				ur, err := userResource(memberCopy, resource.Id)
+				if err != nil {
+					return nil, "", nil, err
+				}
+
+				membershipGrant := grant.NewGrant(resource, memberEntitlement, ur.Id)
+				if g.limitVaultPermissions != nil {
+					if g.limitVaultPermissions.Contains(memberEntitlement) {
+						rv = append(rv, membershipGrant)
+					}
+				} else {
+					rv = append(rv, membershipGrant)
+				}
+
+				// add group permissions to all users in the group.
+				for _, permission := range group.Permissions {
+					if g.limitVaultPermissions != nil {
+						if !g.limitVaultPermissions.Contains(permission) {
+							continue
+						}
+					}
+
+					var groupPermissionGrant *v2.Grant
+					if account.Type == businessAccountType {
+						groupPermissionGrant = grant.NewGrant(resource, businessPermissions[permission], ur.Id)
+					} else {
+						groupPermissionGrant = grant.NewGrant(resource, basicPermissions[permission], ur.Id)
+					}
+					rv = append(rv, groupPermissionGrant)
+				}
+			}
+
+		}
+	default:
+		ctxzap.Extract(ctx).Warn("unexpected resource type while listing vault grants", zap.String("resource_type", bag.Current().ResourceTypeID))
+		return nil, "", nil, errors.New("unexpected resource type")
 	}
 
-	return rv, "", nil, nil
+	npt, err := bag.Marshal()
+	if err != nil {
+		return nil, "", nil, err
+	}
+
+	return rv, npt, nil, nil
 }
 
 // Grant a user access to a vault.
@@ -300,9 +388,10 @@ func (g *vaultResourceType) Revoke(ctx context.Context, grant *v2.Grant) (annota
 	return nil, nil
 }
 
-func vaultBuilder(cli *onepassword.Cli) *vaultResourceType {
+func vaultBuilder(cli *onepassword.Cli, limitVaultPermissions mapset.Set[string]) *vaultResourceType {
 	return &vaultResourceType{
-		resourceType: resourceTypeVault,
-		cli:          cli,
+		resourceType:          resourceTypeVault,
+		cli:                   cli,
+		limitVaultPermissions: limitVaultPermissions,
 	}
 }

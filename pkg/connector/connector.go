@@ -8,6 +8,7 @@ import (
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	mapset "github.com/deckarep/golang-set/v2"
 )
 
 var (
@@ -37,13 +38,18 @@ var (
 )
 
 type OnePassword struct {
-	cli *onepassword.Cli
+	cli                   *onepassword.Cli
+	limitVaultPermissions mapset.Set[string]
 }
 
-func New(ctx context.Context, token string) (*OnePassword, error) {
-	return &OnePassword{
+func New(ctx context.Context, token string, limitVaultPermissions []string) (*OnePassword, error) {
+	op := &OnePassword{
 		cli: onepassword.NewCli(token),
-	}, nil
+	}
+	if len(limitVaultPermissions) > 0 {
+		op.limitVaultPermissions = mapset.NewSet(limitVaultPermissions...)
+	}
+	return op, nil
 }
 
 func (op *OnePassword) Metadata(ctx context.Context) (*v2.ConnectorMetadata, error) {
@@ -66,6 +72,6 @@ func (op *OnePassword) ResourceSyncers(ctx context.Context) []connectorbuilder.R
 		userBuilder(op.cli),
 		groupBuilder(op.cli),
 		accountBuilder(op.cli),
-		vaultBuilder(op.cli),
+		vaultBuilder(op.cli, op.limitVaultPermissions),
 	}
 }
