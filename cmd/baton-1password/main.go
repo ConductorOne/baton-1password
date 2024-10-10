@@ -42,7 +42,6 @@ func main() {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
-
 }
 
 func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, error) {
@@ -63,9 +62,10 @@ func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, e
 		l.Error("failed to login: ", zap.Error(err))
 		return nil, err
 	}
+
 	cb, err := connector.New(
 		ctx,
-		string(token),
+		token,
 		limitVaultPerms,
 	)
 	if err != nil {

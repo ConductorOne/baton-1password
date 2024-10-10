@@ -251,45 +251,54 @@ func (g *vaultResourceType) Grants(ctx context.Context, resource *v2.Resource, p
 
 		for _, group := range vaultGroups {
 			groupCopy := group
-			groupMembers, err := g.cli.ListGroupMembers(ctx, groupCopy.ID)
-			if err != nil {
-				return nil, "", nil, err
+			rid := &v2.ResourceId{
+				Resource:     groupCopy.ID,
+				ResourceType: resourceTypeGroup.Id,
 			}
 
-			for _, member := range groupMembers {
-				memberCopy := member
-				ur, err := userResource(memberCopy, resource.Id)
-				if err != nil {
-					return nil, "", nil, err
-				}
-
-				membershipGrant := grant.NewGrant(resource, memberEntitlement, ur.Id)
-				if g.limitVaultPermissions != nil {
-					if g.limitVaultPermissions.Contains(memberEntitlement) {
-						rv = append(rv, membershipGrant)
-					}
-				} else {
+			membershipGrant := grant.NewGrant(resource, memberEntitlement, rid,
+				grant.WithAnnotation(&v2.GrantExpandable{
+					EntitlementIds: []string{
+						fmt.Sprintf("group:%s:member", groupCopy.ID),
+					},
+					Shallow:         true,
+					ResourceTypeIds: []string{resourceTypeUser.Id},
+				}),
+			)
+			if g.limitVaultPermissions != nil {
+				if g.limitVaultPermissions.Contains(memberEntitlement) {
 					rv = append(rv, membershipGrant)
 				}
-
-				// add group permissions to all users in the group.
-				for _, permission := range group.Permissions {
-					if g.limitVaultPermissions != nil {
-						if !g.limitVaultPermissions.Contains(permission) {
-							continue
-						}
-					}
-
-					var groupPermissionGrant *v2.Grant
-					if account.Type == businessAccountType {
-						groupPermissionGrant = grant.NewGrant(resource, businessPermissions[permission], ur.Id)
-					} else {
-						groupPermissionGrant = grant.NewGrant(resource, basicPermissions[permission], ur.Id)
-					}
-					rv = append(rv, groupPermissionGrant)
-				}
+			} else {
+				rv = append(rv, membershipGrant)
 			}
 
+			// add group permissions to all users in the group.
+			for _, permission := range group.Permissions {
+				if g.limitVaultPermissions != nil {
+					if !g.limitVaultPermissions.Contains(permission) {
+						continue
+					}
+				}
+
+				var perm string
+				if account.Type == businessAccountType {
+					perm = businessPermissions[permission]
+				} else {
+					perm = basicPermissions[permission]
+				}
+
+				groupPermissionGrant := grant.NewGrant(resource, perm, rid,
+					grant.WithAnnotation(&v2.GrantExpandable{
+						EntitlementIds: []string{
+							fmt.Sprintf("group:%s:member", groupCopy.ID),
+						},
+						Shallow:         true,
+						ResourceTypeIds: []string{resourceTypeUser.Id},
+					}),
+				)
+				rv = append(rv, groupPermissionGrant)
+			}
 		}
 	default:
 		ctxzap.Extract(ctx).Warn("unexpected resource type while listing vault grants", zap.String("resource_type", bag.Current().ResourceTypeID))
