@@ -3,7 +3,7 @@ module github.com/conductorone/baton-1password
 go 1.22.0
 
 require (
-	github.com/conductorone/baton-sdk v0.2.40
+	github.com/conductorone/baton-sdk v0.2.46
 	github.com/deckarep/golang-set/v2 v2.6.0
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	go.uber.org/zap v1.27.0

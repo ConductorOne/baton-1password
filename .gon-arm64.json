@@ -1,5 +1,5 @@
 {
-  "source": ["./dist/macos-arm64_darwin_arm64/baton-1password"],
+  "source": ["./dist/macos-arm64_darwin_arm64_v8.0/baton-1password"],
   "bundle_id": "com.conductorone.baton-1password",
   "apple_id": {
     "username" : "justin.gallardo@conductorone.com"
