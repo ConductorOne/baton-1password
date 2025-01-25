@@ -61,18 +61,21 @@ Available Commands:
   help               Help about any command
 
 Flags:
-      --address string         Sign in address of your 1Password account. ($BATON_ADDRESS)
+      --address string                    required: Sign in address of your 1Password account ($BATON_ADDRESS)
       --email string           Email for your 1Password account. ($BATON_EMAIL)
       --secret-key string      Secret Key for your 1Password account. ($BATON_SECRET_KEY)
       --password string        Password for your 1Password account. ($BATON_PASSWORD)
-      --client-id string       The client ID used to authenticate with ConductorOne ($BATON_CLIENT_ID)
-      --client-secret string   The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)
-  -f, --file string            The path to the c1z file to sync with ($BATON_FILE) (default "sync.c1z")
-  -h, --help                   help for baton-1password
-      --log-format string      The output format for logs: json, console ($BATON_LOG_FORMAT) (default "json")
-      --log-level string       The log level: debug, info, warn, error ($BATON_LOG_LEVEL) (default "info")
-  -p, --provisioning           This must be set in order for provisioning actions to be enabled. ($BATON_PROVISIONING)
-  -v, --version                version for baton-1password
+      --client-id string                  The client ID used to authenticate with ConductorOne ($BATON_CLIENT_ID)
+      --client-secret string              The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)
+  -f, --file string                       The path to the c1z file to sync with ($BATON_FILE) (default "sync.c1z")
+  -h, --help                              help for baton-1password
+      --limit-vault-permissions strings   Limit ingested vault permissions: allow_editing, allow_managing, allow_viewing, archive_items, copy_and_share_items, create_items, delete_items, edit_items, export_items, import_items, manage_vault, member, print_items, view_and_copy_passwords, view_item_history, view_items ($BATON_LIMIT_VAULT_PERMISSIONS)
+      --log-format string                 The output format for logs: json, console ($BATON_LOG_FORMAT) (default "json")
+      --log-level string                  The log level: debug, info, warn, error ($BATON_LOG_LEVEL) (default "info")
+  -p, --provisioning                      This must be set in order for provisioning actions to be enabled ($BATON_PROVISIONING)
+      --skip-full-sync                    This must be set to skip a full sync ($BATON_SKIP_FULL_SYNC)
+      --ticketing                         This must be set to enable ticketing support ($BATON_TICKETING)
+  -v, --version                           version for baton-1password
 
 Use "baton-1password [command] --help" for more information about a command.
 ```
