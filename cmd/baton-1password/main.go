@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"syscall"
 
 	onepassword "github.com/conductorone/baton-1password/pkg/1password"
 	config2 "github.com/conductorone/baton-1password/pkg/config"
@@ -14,6 +15,7 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	"golang.org/x/term"
 )
 
 var (
@@ -47,6 +49,7 @@ func main() {
 func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, error) {
 	l := ctxzap.Extract(ctx)
 	limitVaultPerms := v.GetStringSlice(config2.LimitVaultPermissionsField.FieldName)
+
 	if len(limitVaultPerms) > 0 {
 		validPerms := connector.AllVaultPermissions()
 		for _, perm := range limitVaultPerms {
@@ -57,7 +60,35 @@ func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, e
 		}
 	}
 
-	token, err := onepassword.SignIn(ctx, v.GetString(config2.AddressField.FieldName))
+	if v.GetString(config2.PasswordField.FieldName) == "" {
+		fmt.Print("Enter your password: ")
+		bytePassword, _ := term.ReadPassword(int(syscall.Stdin))
+		fmt.Println()
+
+		os.Setenv("BATON_PASSWORD", string(bytePassword))
+	}
+
+	isMissingAccount, err := onepassword.AccountMissing(ctx, v.GetString(config2.EmailField.FieldName))
+	if err != nil {
+		l.Error("failed to check accounts: ", zap.Error(err))
+		return nil, err
+	}
+
+	if isMissingAccount {
+		onepassword.AddAccount(ctx,
+			v.GetString(config2.AddressField.FieldName),
+			v.GetString(config2.EmailField.FieldName),
+			v.GetString(config2.KeyField.FieldName),
+			v.GetString(config2.PasswordField.FieldName),
+		)
+	}
+
+	token, err := onepassword.SignIn(ctx,
+		v.GetString(config2.AddressField.FieldName),
+		v.GetString(config2.EmailField.FieldName),
+		v.GetString(config2.PasswordField.FieldName),
+	)
+
 	if err != nil {
 		l.Error("failed to login: ", zap.Error(err))
 		return nil, err

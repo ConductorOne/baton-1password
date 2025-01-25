@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 
@@ -19,6 +20,7 @@ type Cli struct {
 }
 
 func NewCli(token string) *Cli {
+	fmt.Sprintln(token)
 	return &Cli{
 		token: token,
 	}
@@ -32,32 +34,134 @@ type AuthResponse struct {
 	Shorthand   string `json:"shorthand"`
 }
 
-// Sign in to 1Password, returning the token.
-// In case account doesn't exist, it will prompt for account creation and will login the user.
-func SignIn(ctx context.Context, account string) (string, error) {
+func AddAccount(ctx context.Context, url string, email string, secret string, password string) error {
 	l := ctxzap.Extract(ctx)
 
-	cmd := exec.Command("op", "signin", "--account", account, "--raw")
-	out := bytes.NewBuffer(nil)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = out
-	cmd.Stderr = os.Stderr
+	err := os.Setenv("OP_SECRET_KEY", secret)
+	if err != nil {
+		return err
+	}
 
-	err := cmd.Run()
+	addCmd := exec.Command("op", "account", "add", "--address", url, "--email", email, "--raw")
+	addIn, err := addCmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+
+	err = addCmd.Start()
+	if err != nil {
+		return err
+	}
+
+	_, err = fmt.Fprintf(addIn, "%s\n", password)
+	if err != nil {
+		return err
+	}
+
+	err = addIn.Close()
+	if err != nil {
+		return err
+	}
+
+	err = addCmd.Wait()
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			l.Error(
-				"error executing command",
+				"error executing AddAccount command",
 				zap.Error(err),
 				zap.String("stderr", string(exitErr.Stderr)),
 				zap.Int("exit_code", exitErr.ExitCode()),
 			)
 		}
-		return "", fmt.Errorf("error starting command: %w", err)
+		return fmt.Errorf("error starting command: %w", err)
 	}
 
-	return out.String(), nil
+	return nil
+}
+
+type AccountDetails struct {
+	URL         string `json:"url"`
+	Email       string `json:"email"`
+	UserUUID    string `json:"user_uuid"`
+	AccountUUID string `json:"account_uuid"`
+}
+
+func AccountMissing(ctx context.Context, email string) (bool, error) {
+	l := ctxzap.Extract(ctx)
+
+	cmd := exec.Command("op", "accounts", "list", "--format=json")
+	output, err := cmd.Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			l.Error(
+				"error executing 'op accounts list' command",
+				zap.Error(err),
+				zap.String("stderr", string(exitErr.Stderr)),
+				zap.Int("exit_code", exitErr.ExitCode()),
+			)
+		}
+		return false, fmt.Errorf("error executing command: %w", err)
+	}
+
+	var accounts []AccountDetails
+	if err = json.Unmarshal(output, &accounts); err != nil {
+		return false, fmt.Errorf("error unmarshalling response: %w", err)
+	}
+
+	for _, account := range accounts {
+		if account.Email == email {
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
+// Sign in to 1Password, returning the token.
+// In case account doesn't exist, it will prompt for account creation and will login the user.
+func SignIn(ctx context.Context, account string, email string, password string) (string, error) {
+	l := ctxzap.Extract(ctx)
+
+	var (
+		out    bytes.Buffer
+		stderr bytes.Buffer
+		err    error
+		pipeIn io.WriteCloser
+	)
+
+	cmd := exec.Command("op", "signin", "--raw")
+
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+
+	if pipeIn, err = cmd.StdinPipe(); err != nil {
+		return "", err
+	}
+
+	if _, err = fmt.Fprintf(pipeIn, "%s\n", password); err != nil {
+		return "", err
+	}
+
+	if err = pipeIn.Close(); err != nil {
+		return "", err
+	}
+
+	if err = cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			l.Error(
+				"error executing 'op signin --raw' command",
+				zap.Error(err),
+				zap.String("stderr", string(exitErr.Stderr)),
+				zap.Int("exit_code", exitErr.ExitCode()),
+			)
+		}
+		return "", fmt.Errorf("error executing command: %w", err)
+	}
+
+	return string(out.String()), nil
 }
 
 // GetSignedInAccount gets information about the signed in account.

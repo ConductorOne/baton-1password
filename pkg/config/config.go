@@ -15,6 +15,24 @@ func sortedVaultPermissions() []string {
 }
 
 var (
+	EmailField = field.StringField(
+		"email",
+		field.WithDescription("Email of your 1password account"),
+		field.WithRequired(true),
+	)
+
+	KeyField = field.StringField(
+		"secret-key",
+		field.WithDescription("Secret-key of your 1password account"),
+		field.WithRequired(true),
+	)
+
+	PasswordField = field.StringField(
+		"password",
+		field.WithDescription("Password of your 1password account"),
+		field.WithRequired(false),
+	)
+
 	AddressField = field.StringField(
 		"address",
 		field.WithDescription("Sign in address of your 1Password account"),
@@ -29,6 +47,9 @@ var (
 
 	ConfigurationFields = []field.SchemaField{
 		AddressField,
+		EmailField,
+		KeyField,
+		PasswordField,
 		LimitVaultPermissionsField,
 	}
 
