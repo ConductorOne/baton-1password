@@ -68,23 +68,25 @@ func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, e
 		os.Setenv("BATON_PASSWORD", string(bytePassword))
 	}
 
-	isMissingAccount, err := onepassword.AccountMissing(ctx, v.GetString(config2.EmailField.FieldName))
+	localAccountExists, account, err := onepassword.LocalAccountExists(ctx, v.GetString(config2.EmailField.FieldName))
 	if err != nil {
-		l.Error("failed to check accounts: ", zap.Error(err))
+		l.Error("failed to check local accounts: ", zap.Error(err))
 		return nil, err
 	}
 
-	if isMissingAccount {
-		onepassword.AddAccount(ctx,
+	if !localAccountExists {
+		if account, err = onepassword.AddLocalAccount(ctx,
 			v.GetString(config2.AddressField.FieldName),
 			v.GetString(config2.EmailField.FieldName),
 			v.GetString(config2.KeyField.FieldName),
 			v.GetString(config2.PasswordField.FieldName),
-		)
+		); err != nil {
+			l.Error("failed to add local account: ", zap.Error(err))
+		}
 	}
 
 	token, err := onepassword.SignIn(ctx,
-		v.GetString(config2.AddressField.FieldName),
+		account,
 		v.GetString(config2.EmailField.FieldName),
 		v.GetString(config2.PasswordField.FieldName),
 	)
