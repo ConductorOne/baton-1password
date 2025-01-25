@@ -32,6 +32,7 @@ type AccountDetails struct {
 	AccountUUID string `json:"account_uuid"`
 }
 
+// Get the accounts listed on the local config
 func GetLocalAccounts(ctx context.Context) ([]AccountDetails, error) {
 	l := ctxzap.Extract(ctx)
 
@@ -60,22 +61,24 @@ func GetLocalAccounts(ctx context.Context) ([]AccountDetails, error) {
 	return accounts, nil
 }
 
-func LocalAccountExists(ctx context.Context, email string) (bool, string, error) {
+// Returns the account UUID
+func GetLocalAccountUUID(ctx context.Context, email string) (string, error) {
 
 	accounts, err := GetLocalAccounts(ctx)
 	if err != nil {
-		return false, "", fmt.Errorf("error getting local accounts: %w", err)
+		return "", fmt.Errorf("error getting local accounts: %w", err)
 	}
 
 	for _, account := range accounts {
 		if account.Email == email {
-			return true, account.AccountUUID, nil
+			return account.AccountUUID, nil
 		}
 	}
 
-	return false, "", nil
+	return "", nil
 }
 
+// Adds a user account to the local config
 func AddLocalAccount(ctx context.Context, url string, email string, secret string, password string) (string, error) {
 	l := ctxzap.Extract(ctx)
 
@@ -120,7 +123,7 @@ func AddLocalAccount(ctx context.Context, url string, email string, secret strin
 		return "", fmt.Errorf("error starting command: %w", err)
 	}
 
-	if exists, account, err = LocalAccountExists(ctx, email); !exists {
+	if account, err = GetLocalAccountUUID(ctx, email); !exists {
 		return "", fmt.Errorf("error getting accountuuid after account add: %w", err)
 	}
 
@@ -128,7 +131,7 @@ func AddLocalAccount(ctx context.Context, url string, email string, secret strin
 }
 
 // Sign in to 1Password, returning the token.
-// In case account doesn't exist, it will prompt for account creation and will login the user.
+// If password is not provided, user will be prompted for it
 func SignIn(ctx context.Context, account string, email string, password string) (string, error) {
 	l := ctxzap.Extract(ctx)
 

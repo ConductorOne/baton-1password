@@ -61,20 +61,20 @@ func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, e
 	}
 
 	if v.GetString(config2.PasswordField.FieldName) == "" {
-		fmt.Print("Enter your password: ")
+		os.Stdout.Write([]byte("Enter your password: "))
 		bytePassword, _ := term.ReadPassword(int(syscall.Stdin))
-		fmt.Println()
+		os.Stdout.Write([]byte("\n"))
 
 		os.Setenv("BATON_PASSWORD", string(bytePassword))
 	}
 
-	localAccountExists, account, err := onepassword.LocalAccountExists(ctx, v.GetString(config2.EmailField.FieldName))
+	account, err := onepassword.GetLocalAccountUUID(ctx, v.GetString(config2.EmailField.FieldName))
 	if err != nil {
 		l.Error("failed to check local accounts: ", zap.Error(err))
 		return nil, err
 	}
 
-	if !localAccountExists {
+	if account == "" {
 		if account, err = onepassword.AddLocalAccount(ctx,
 			v.GetString(config2.AddressField.FieldName),
 			v.GetString(config2.EmailField.FieldName),
