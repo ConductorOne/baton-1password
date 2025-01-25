@@ -32,7 +32,7 @@ type AccountDetails struct {
 	AccountUUID string `json:"account_uuid"`
 }
 
-// Get the accounts listed on the local config
+// Get the accounts listed on the local config.
 func GetLocalAccounts(ctx context.Context) ([]AccountDetails, error) {
 	l := ctxzap.Extract(ctx)
 
@@ -61,9 +61,8 @@ func GetLocalAccounts(ctx context.Context) ([]AccountDetails, error) {
 	return accounts, nil
 }
 
-// Returns the account UUID
+// Returns the account UUID.
 func GetLocalAccountUUID(ctx context.Context, email string) (string, error) {
-
 	accounts, err := GetLocalAccounts(ctx)
 	if err != nil {
 		return "", fmt.Errorf("error getting local accounts: %w", err)
@@ -78,7 +77,7 @@ func GetLocalAccountUUID(ctx context.Context, email string) (string, error) {
 	return "", nil
 }
 
-// Adds a user account to the local config
+// Adds a user account to the local config.
 func AddLocalAccount(ctx context.Context, url string, email string, secret string, password string) (string, error) {
 	l := ctxzap.Extract(ctx)
 
@@ -131,7 +130,7 @@ func AddLocalAccount(ctx context.Context, url string, email string, secret strin
 }
 
 // Sign in to 1Password, returning the token.
-// If password is not provided, user will be prompted for it
+// If password is not provided, user will be prompted for it.
 func SignIn(ctx context.Context, account string, email string, password string) (string, error) {
 	l := ctxzap.Extract(ctx)
 
@@ -172,7 +171,7 @@ func SignIn(ctx context.Context, account string, email string, password string) 
 		return "", fmt.Errorf("error executing command: %w", err)
 	}
 
-	return string(out.String()), nil
+	return out.String(), nil
 }
 
 type AuthResponse struct {

@@ -50,6 +50,11 @@ func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, e
 	l := ctxzap.Extract(ctx)
 	limitVaultPerms := v.GetStringSlice(config2.LimitVaultPermissionsField.FieldName)
 
+	var (
+		err          error
+		bytePassword []byte
+	)
+
 	if len(limitVaultPerms) > 0 {
 		validPerms := connector.AllVaultPermissions()
 		for _, perm := range limitVaultPerms {
@@ -61,9 +66,15 @@ func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, e
 	}
 
 	if v.GetString(config2.PasswordField.FieldName) == "" {
-		os.Stdout.Write([]byte("Enter your password: "))
-		bytePassword, _ := term.ReadPassword(int(syscall.Stdin))
-		os.Stdout.Write([]byte("\n"))
+		if _, err = os.Stdout.Write([]byte("Enter your password: ")); err != nil {
+			l.Error("failed to prompt user for password: ", zap.Error(err))
+		}
+		if bytePassword, err = term.ReadPassword(syscall.Stdin); err != nil {
+			l.Error("failed to read user password input: ", zap.Error(err))
+		}
+		// if _, err os.Stdout.Write([]byte("\n")); err != nil {
+		// 	l.Error("failed to add newline to : ", zap.Error(err))
+		// }
 
 		os.Setenv("BATON_PASSWORD", string(bytePassword))
 	}
