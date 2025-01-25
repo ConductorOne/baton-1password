@@ -62,9 +62,9 @@ Available Commands:
 
 Flags:
       --address string                    required: Sign in address of your 1Password account ($BATON_ADDRESS)
-      --email string           Email for your 1Password account. ($BATON_EMAIL)
-      --secret-key string      Secret Key for your 1Password account. ($BATON_SECRET_KEY)
-      --password string        Password for your 1Password account. ($BATON_PASSWORD)
+      --email string                      required: Email for your 1Password account. ($BATON_EMAIL)
+      --secret-key string                 required: Secret Key for your 1Password account. ($BATON_SECRET_KEY)
+      --password string                   Password for your 1Password account. ($BATON_PASSWORD) If not provided, manual input required.
       --client-id string                  The client ID used to authenticate with ConductorOne ($BATON_CLIENT_ID)
       --client-secret string              The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)
   -f, --file string                       The path to the c1z file to sync with ($BATON_FILE) (default "sync.c1z")
