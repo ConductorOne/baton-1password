@@ -72,9 +72,6 @@ func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, e
 		if bytePassword, err = term.ReadPassword(syscall.Stdin); err != nil {
 			l.Error("failed to read user password input: ", zap.Error(err))
 		}
-		// if _, err os.Stdout.Write([]byte("\n")); err != nil {
-		// 	l.Error("failed to add newline to : ", zap.Error(err))
-		// }
 
 		os.Setenv("BATON_PASSWORD", string(bytePassword))
 	}
