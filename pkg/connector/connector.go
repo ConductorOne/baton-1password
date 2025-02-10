@@ -42,9 +42,9 @@ type OnePassword struct {
 	limitVaultPermissions mapset.Set[string]
 }
 
-func New(ctx context.Context, token string, limitVaultPermissions []string) (*OnePassword, error) {
+func New(ctx context.Context, authType string, token string, limitVaultPermissions []string) (*OnePassword, error) {
 	op := &OnePassword{
-		cli: onepassword.NewCli(token),
+		cli: onepassword.NewCli(authType, token),
 	}
 	if len(limitVaultPermissions) > 0 {
 		op.limitVaultPermissions = mapset.NewSet(limitVaultPermissions...)

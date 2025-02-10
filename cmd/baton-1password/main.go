@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"syscall"
 
 	onepassword "github.com/conductorone/baton-1password/pkg/1password"
 	config2 "github.com/conductorone/baton-1password/pkg/config"
@@ -15,7 +14,6 @@ import (
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
-	"golang.org/x/term"
 )
 
 var (
@@ -51,8 +49,8 @@ func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, e
 	limitVaultPerms := v.GetStringSlice(config2.LimitVaultPermissionsField.FieldName)
 
 	var (
-		err          error
-		bytePassword []byte
+		err   error
+		token string
 	)
 
 	if len(limitVaultPerms) > 0 {
@@ -65,47 +63,33 @@ func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, e
 		}
 	}
 
-	if v.GetString(config2.PasswordField.FieldName) == "" {
-		if _, err = os.Stdout.Write([]byte("Enter your password: ")); err != nil {
-			l.Error("failed to prompt user for password: ", zap.Error(err))
+	authType := v.GetString(config2.AuthTypeField.FieldName)
+
+	if v.GetString(config2.AuthTypeField.FieldName) == "service" {
+
+		if os.Getenv("OP_SERVICE_ACCOUNT_TOKEN") == "" {
+			l.Error("environment variable OP_SERVICE_ACCOUNT_TOKEN missing")
+			return nil, fmt.Errorf("service account requested, but required environment variable OP_SERVICE_ACCOUNT_TOKEN is missing")
 		}
-		if bytePassword, err = term.ReadPassword(syscall.Stdin); err != nil {
-			l.Error("failed to read user password input: ", zap.Error(err))
-		}
 
-		os.Setenv("BATON_PASSWORD", string(bytePassword))
-	}
-
-	account, err := onepassword.GetLocalAccountUUID(ctx, v.GetString(config2.EmailField.FieldName))
-	if err != nil {
-		l.Error("failed to check local accounts: ", zap.Error(err))
-		return nil, err
-	}
-
-	if account == "" {
-		if account, err = onepassword.AddLocalAccount(ctx,
+		token = ""
+		authType = "service"
+	} else {
+		if token, err = onepassword.GetUserToken(
+			ctx,
 			v.GetString(config2.AddressField.FieldName),
 			v.GetString(config2.EmailField.FieldName),
 			v.GetString(config2.KeyField.FieldName),
 			v.GetString(config2.PasswordField.FieldName),
 		); err != nil {
-			l.Error("failed to add local account: ", zap.Error(err))
+			l.Error("unable to get token", zap.Error(err))
+			return nil, err
 		}
-	}
-
-	token, err := onepassword.SignIn(ctx,
-		account,
-		v.GetString(config2.EmailField.FieldName),
-		v.GetString(config2.PasswordField.FieldName),
-	)
-
-	if err != nil {
-		l.Error("failed to login: ", zap.Error(err))
-		return nil, err
 	}
 
 	cb, err := connector.New(
 		ctx,
+		authType,
 		token,
 		limitVaultPerms,
 	)

@@ -18,13 +18,20 @@ var (
 	EmailField = field.StringField(
 		"email",
 		field.WithDescription("Email of your 1password account"),
-		field.WithRequired(true),
+		field.WithRequired(false),
+	)
+
+	AuthTypeField = field.StringField(
+		"auth-type",
+		field.WithDescription("Autentication method to use limited to 'user' and 'service'. Default: 'user'"),
+		field.WithRequired(false),
+		field.WithDefaultValue("user"),
 	)
 
 	KeyField = field.StringField(
 		"secret-key",
 		field.WithDescription("Secret-key of your 1password account"),
-		field.WithRequired(true),
+		field.WithRequired(false),
 	)
 
 	PasswordField = field.StringField(
@@ -36,7 +43,7 @@ var (
 	AddressField = field.StringField(
 		"address",
 		field.WithDescription("Sign in address of your 1Password account"),
-		field.WithRequired(true),
+		field.WithRequired(false),
 	)
 
 	LimitVaultPermissionsField = field.StringSliceField(
@@ -48,6 +55,7 @@ var (
 	ConfigurationFields = []field.SchemaField{
 		AddressField,
 		EmailField,
+		AuthTypeField,
 		KeyField,
 		PasswordField,
 		LimitVaultPermissionsField,

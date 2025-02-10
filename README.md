@@ -61,9 +61,10 @@ Available Commands:
   help               Help about any command
 
 Flags:
-      --address string                    required: Sign in address of your 1Password account ($BATON_ADDRESS)
-      --email string                      required: Email for your 1Password account. ($BATON_EMAIL)
-      --secret-key string                 required: Secret Key for your 1Password account. ($BATON_SECRET_KEY)
+      --auth-type string                  Options: "user" (default) and "service". If using "service" auth the OP_SERVICE_ACCOUNT_TOKEN is required.
+      --address string                    Sign in address of your 1Password account ($BATON_ADDRESS)
+      --email string                      Email for your 1Password account. ($BATON_EMAIL)
+      --secret-key string                 Secret Key for your 1Password account. ($BATON_SECRET_KEY)
       --password string                   Password for your 1Password account. ($BATON_PASSWORD) If not provided, manual input required.
       --client-id string                  The client ID used to authenticate with ConductorOne ($BATON_CLIENT_ID)
       --client-secret string              The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)

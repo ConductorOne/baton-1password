@@ -9,6 +9,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"syscall"
+
+	"golang.org/x/term"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -16,12 +19,14 @@ import (
 
 // 1Password CLI instance.
 type Cli struct {
-	token string
+	authType string
+	token    string
 }
 
-func NewCli(token string) *Cli {
+func NewCli(authType string, token string) *Cli {
 	return &Cli{
-		token: token,
+		authType: authType,
+		token:    token,
 	}
 }
 
@@ -127,6 +132,74 @@ func AddLocalAccount(ctx context.Context, url string, email string, secret strin
 	}
 
 	return account, nil
+}
+
+func PromptPassword(ctx context.Context) ([]byte, error) {
+	l := ctxzap.Extract(ctx)
+
+	var (
+		err          error
+		bytePassword []byte
+	)
+
+	l.Warn("Password was not provided in environment or by flag. User input required!")
+
+	if _, err = os.Stdout.Write([]byte("Enter your password: ")); err != nil {
+		return nil, fmt.Errorf("failed to prompt user for password")
+	}
+
+	bytePassword, err = term.ReadPassword(syscall.Stdin)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read user password input")
+	}
+
+	return bytePassword, nil
+}
+
+func GetUserToken(ctx context.Context, addressField string, emailField string, keyField string, passwordField string) (string, error) {
+	l := ctxzap.Extract(ctx)
+
+	var (
+		err          error
+		bytePassword []byte
+	)
+
+	if passwordField == "" {
+		bytePassword, err = PromptPassword(ctx)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	account, err := GetLocalAccountUUID(ctx, emailField)
+	if err != nil {
+		l.Error("failed to check local accounts: ", zap.Error(err))
+		return "", err
+	}
+
+	if account == "" {
+		if account, err = AddLocalAccount(ctx,
+			addressField,
+			emailField,
+			keyField,
+			string(bytePassword),
+		); err != nil {
+			l.Error("failed to add local account: ", zap.Error(err))
+		}
+	}
+
+	token, err := SignIn(ctx,
+		account,
+		emailField,
+		passwordField,
+	)
+	if err != nil {
+		l.Error("failed to SignIn: ", zap.Error(err))
+		return "", err
+	}
+
+	return token, nil
+
 }
 
 // Sign in to 1Password, returning the token.
@@ -349,7 +422,12 @@ func (cli *Cli) RemoveUserFromVault(ctx context.Context, vault, user, permission
 func (cli *Cli) executeCommand(ctx context.Context, args []string, res interface{}) error {
 	l := ctxzap.Extract(ctx)
 
-	defaultArgs := []string{"--format=json", "--session", cli.token}
+	defaultArgs := []string{"--format=json"}
+
+	if cli.authType == "user" {
+		args = append(args, []string{"--session", cli.token}...)
+	}
+
 	defaultArgs = append(args, defaultArgs...)
 
 	cmd := exec.Command("op", defaultArgs...) // #nosec
