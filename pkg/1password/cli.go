@@ -9,9 +9,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"syscall"
-
-	"golang.org/x/term"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
@@ -31,6 +28,22 @@ func NewCli(authType string, token string) *Cli {
 }
 
 type AccountDetails struct {
+	address  string
+	email    string
+	secret   string
+	password string
+}
+
+func NewAccount(address string, email string, secret string, password string) *AccountDetails {
+	return &AccountDetails{
+		address:  address,
+		email:    email,
+		secret:   secret,
+		password: password,
+	}
+}
+
+type LocalAccountDetails struct {
 	URL         string `json:"url"`
 	Email       string `json:"email"`
 	UserUUID    string `json:"user_uuid"`
@@ -38,7 +51,7 @@ type AccountDetails struct {
 }
 
 // Get the accounts listed on the local config.
-func GetLocalAccounts(ctx context.Context) ([]AccountDetails, error) {
+func GetLocalAccounts(ctx context.Context) ([]LocalAccountDetails, error) {
 	l := ctxzap.Extract(ctx)
 
 	var err error
@@ -58,7 +71,7 @@ func GetLocalAccounts(ctx context.Context) ([]AccountDetails, error) {
 		return nil, fmt.Errorf("error executing command: %w", err)
 	}
 
-	var accounts []AccountDetails
+	var accounts []LocalAccountDetails
 	if err = json.Unmarshal(output, &accounts); err != nil {
 		return nil, fmt.Errorf("error unmarshalling response: %w", err)
 	}
@@ -83,21 +96,23 @@ func GetLocalAccountUUID(ctx context.Context, email string) (string, error) {
 }
 
 // Adds a user account to the local config.
-func AddLocalAccount(ctx context.Context, url string, email string, secret string, password string) (string, error) {
+func AddLocalAccount(ctx context.Context, providedAccountDetails *AccountDetails) (string, error) {
 	l := ctxzap.Extract(ctx)
 
 	var (
 		err     error
 		addIn   io.WriteCloser
 		account string
-		exists  bool
 	)
 
-	if err := os.Setenv("OP_SECRET_KEY", secret); err != nil {
+	// Must be provided as environment variable
+	if err := os.Setenv("OP_SECRET_KEY", providedAccountDetails.secret); err != nil {
 		return "", err
 	}
 
-	addCmd := exec.Command("op", "account", "add", "--address", url, "--email", email, "--raw")
+	args := []string{"account", "add", "--address", providedAccountDetails.address, "--email", providedAccountDetails.email, "--raw"}
+
+	addCmd := exec.Command("op", args...)
 	if addIn, err = addCmd.StdinPipe(); err != nil {
 		return "", err
 	}
@@ -106,7 +121,7 @@ func AddLocalAccount(ctx context.Context, url string, email string, secret strin
 		return "", err
 	}
 
-	if _, err = fmt.Fprintf(addIn, "%s\n", password); err != nil {
+	if _, err = fmt.Fprintf(addIn, "%s\n", providedAccountDetails.password); err != nil {
 		return "", err
 	}
 
@@ -127,51 +142,28 @@ func AddLocalAccount(ctx context.Context, url string, email string, secret strin
 		return "", fmt.Errorf("error starting command: %w", err)
 	}
 
-	if account, err = GetLocalAccountUUID(ctx, email); !exists {
+	if account, err = GetLocalAccountUUID(ctx, providedAccountDetails.email); err != nil {
 		return "", fmt.Errorf("error getting accountuuid after account add: %w", err)
 	}
+
+	l.Debug(fmt.Sprintf("Local account added: %s", account))
 
 	return account, nil
 }
 
-func PromptPassword(ctx context.Context) ([]byte, error) {
+func GetUserToken(ctx context.Context, providedAccountDetails *AccountDetails) (string, error) {
 	l := ctxzap.Extract(ctx)
 
 	var (
-		err          error
-		bytePassword []byte
+		err error
 	)
 
-	l.Warn("Password was not provided in environment or by flag. User input required!")
-
-	if _, err = os.Stdout.Write([]byte("Enter your password: ")); err != nil {
-		return nil, fmt.Errorf("failed to prompt user for password")
+	if providedAccountDetails.password == "" {
+		l.Error("password must be provided")
+		return "", fmt.Errorf("password is required for user auth-type")
 	}
 
-	bytePassword, err = term.ReadPassword(syscall.Stdin)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read user password input")
-	}
-
-	return bytePassword, nil
-}
-
-func GetUserToken(ctx context.Context, addressField string, emailField string, keyField string, passwordField string) (string, error) {
-	l := ctxzap.Extract(ctx)
-
-	var (
-		err          error
-		bytePassword []byte
-	)
-
-	if passwordField == "" {
-		bytePassword, err = PromptPassword(ctx)
-		if err != nil {
-			return "", err
-		}
-	}
-
-	account, err := GetLocalAccountUUID(ctx, emailField)
+	account, err := GetLocalAccountUUID(ctx, providedAccountDetails.email)
 	if err != nil {
 		l.Error("failed to check local accounts: ", zap.Error(err))
 		return "", err
@@ -179,32 +171,29 @@ func GetUserToken(ctx context.Context, addressField string, emailField string, k
 
 	if account == "" {
 		if account, err = AddLocalAccount(ctx,
-			addressField,
-			emailField,
-			keyField,
-			string(bytePassword),
+			providedAccountDetails,
 		); err != nil {
 			l.Error("failed to add local account: ", zap.Error(err))
+			return "", err
 		}
 	}
 
 	token, err := SignIn(ctx,
 		account,
-		emailField,
-		passwordField,
+		providedAccountDetails,
 	)
+
 	if err != nil {
 		l.Error("failed to SignIn: ", zap.Error(err))
 		return "", err
 	}
 
 	return token, nil
-
 }
 
 // Sign in to 1Password, returning the token.
 // If password is not provided, user will be prompted for it.
-func SignIn(ctx context.Context, account string, email string, password string) (string, error) {
+func SignIn(ctx context.Context, account string, providedAccountDetails *AccountDetails) (string, error) {
 	l := ctxzap.Extract(ctx)
 
 	var (
@@ -223,7 +212,7 @@ func SignIn(ctx context.Context, account string, email string, password string) 
 		return "", err
 	}
 
-	if _, err = fmt.Fprintf(pipeIn, "%s\n", password); err != nil {
+	if _, err = fmt.Fprintf(pipeIn, "%s\n", providedAccountDetails.password); err != nil {
 		return "", err
 	}
 
@@ -243,6 +232,8 @@ func SignIn(ctx context.Context, account string, email string, password string) 
 		}
 		return "", fmt.Errorf("error executing command: %w", err)
 	}
+
+	l.Debug("SignIn Completed")
 
 	return out.String(), nil
 }

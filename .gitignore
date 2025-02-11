@@ -14,7 +14,7 @@
 
 # VSCode / Codium
 .DS_Store
-.vscode/launch.json
+.vscode
 __debug*
 
 # Dependency directories (remove the comment below to include it)

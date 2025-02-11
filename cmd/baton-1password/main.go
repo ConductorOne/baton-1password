@@ -63,34 +63,39 @@ func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, e
 		}
 	}
 
+	providedAccountDetails := onepassword.NewAccount(
+		v.GetString(config2.AddressField.FieldName),
+		v.GetString(config2.EmailField.FieldName),
+		v.GetString(config2.KeyField.FieldName),
+		v.GetString(config2.PasswordField.FieldName),
+	)
+
 	authType := v.GetString(config2.AuthTypeField.FieldName)
 
-	if v.GetString(config2.AuthTypeField.FieldName) == "service" {
-
+	switch authType {
+	case "service":
 		if os.Getenv("OP_SERVICE_ACCOUNT_TOKEN") == "" {
 			l.Error("environment variable OP_SERVICE_ACCOUNT_TOKEN missing")
-			return nil, fmt.Errorf("service account requested, but required environment variable OP_SERVICE_ACCOUNT_TOKEN is missing")
+			return nil, fmt.Errorf("service account authentication requested, but required environment variable OP_SERVICE_ACCOUNT_TOKEN is missing")
 		}
-
-		token = ""
-		authType = "service"
-	} else {
+	case "user":
 		if token, err = onepassword.GetUserToken(
 			ctx,
-			v.GetString(config2.AddressField.FieldName),
-			v.GetString(config2.EmailField.FieldName),
-			v.GetString(config2.KeyField.FieldName),
-			v.GetString(config2.PasswordField.FieldName),
+			providedAccountDetails,
 		); err != nil {
 			l.Error("unable to get token", zap.Error(err))
 			return nil, err
 		}
+	default:
+		l.Error(fmt.Sprintf("authType provided ('%s') is not handled", authType))
+		return nil, fmt.Errorf("authType provided ('%s') is not handled", authType)
 	}
 
 	cb, err := connector.New(
 		ctx,
 		authType,
 		token,
+		providedAccountDetails,
 		limitVaultPerms,
 	)
 	if err != nil {

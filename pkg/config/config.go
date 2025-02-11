@@ -23,7 +23,7 @@ var (
 
 	AuthTypeField = field.StringField(
 		"auth-type",
-		field.WithDescription("Autentication method to use limited to 'user' and 'service'. Default: 'user'"),
+		field.WithDescription("Authentication method to use with One Password cli. Limited to 'user' and 'service'. Default: 'user'"),
 		field.WithRequired(false),
 		field.WithDefaultValue("user"),
 	)
@@ -42,8 +42,9 @@ var (
 
 	AddressField = field.StringField(
 		"address",
-		field.WithDescription("Sign in address of your 1Password account"),
+		field.WithDescription("Sign in address of your 1Password account. Default: 'my.1password.com'"),
 		field.WithRequired(false),
+		field.WithDefaultValue("my.1password.com"),
 	)
 
 	LimitVaultPermissionsField = field.StringSliceField(
@@ -61,7 +62,9 @@ var (
 		LimitVaultPermissionsField,
 	}
 
-	FieldRelationships = []field.SchemaFieldRelationship{}
+	FieldRelationships = []field.SchemaFieldRelationship{
+		field.FieldsRequiredTogether(EmailField, AddressField, KeyField, PasswordField),
+	}
 
 	ConfigurationSchema = field.Configuration{
 		Fields: ConfigurationFields,

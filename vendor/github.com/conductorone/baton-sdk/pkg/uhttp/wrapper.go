@@ -10,6 +10,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"syscall"
 	"time"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
@@ -29,9 +31,8 @@ const (
 	applicationFormUrlencoded = "application/x-www-form-urlencoded"
 	applicationVndApiJSON     = "application/vnd.api+json"
 	acceptHeader              = "Accept"
+	authorizationHeader       = "Authorization"
 )
-
-const maxBodySize = 4096
 
 type WrapperResponse struct {
 	Header     http.Header
@@ -138,8 +139,8 @@ func WithJSONResponse(response interface{}) DoOption {
 
 		if !IsJSONContentType(contentHeader) {
 			if len(resp.Body) != 0 {
-				// we want to see the body regardless
-				return fmt.Errorf("unexpected content type for JSON response: %s. status code: %d. body: «%s»", contentHeader, resp.StatusCode, logBody(resp.Body, maxBodySize))
+				// to print the response, set the envvar BATON_DEBUG_PRINT_RESPONSE_BODY as non-empty, instead
+				return fmt.Errorf("unexpected content type for JSON response: %s. status code: %d", contentHeader, resp.StatusCode)
 			}
 			return fmt.Errorf("unexpected content type for JSON response: %s. status code: %d", contentHeader, resp.StatusCode)
 		}
@@ -148,17 +149,26 @@ func WithJSONResponse(response interface{}) DoOption {
 		}
 		err := json.Unmarshal(resp.Body, response)
 		if err != nil {
-			return fmt.Errorf("failed to unmarshal json response: %w. status code: %d. body %v", err, resp.StatusCode, logBody(resp.Body, maxBodySize))
+			// to print the response, set the envvar BATON_DEBUG_PRINT_RESPONSE_BODY as non-empty, instead
+			return fmt.Errorf("failed to unmarshal json response: %w. status code: %d", err, resp.StatusCode)
 		}
 		return nil
 	}
 }
 
-func logBody(body []byte, size int) string {
-	if len(body) > size {
-		return string(body[:size]) + " ..."
+// Ignore content type header and always try to parse the response as JSON.
+func WithAlwaysJSONResponse(response interface{}) DoOption {
+	return func(resp *WrapperResponse) error {
+		if response == nil && len(resp.Body) == 0 {
+			return nil
+		}
+		err := json.Unmarshal(resp.Body, response)
+		if err != nil {
+			// to print the response, set the envvar BATON_DEBUG_PRINT_RESPONSE_BODY as non-empty, instead
+			return fmt.Errorf("failed to unmarshal json response: %w. status code: %d", err, resp.StatusCode)
+		}
+		return nil
 	}
-	return string(body)
 }
 
 type ErrorResponse interface {
@@ -174,12 +184,14 @@ func WithErrorResponse(resource ErrorResponse) DoOption {
 		contentHeader := resp.Header.Get(ContentType)
 
 		if !IsJSONContentType(contentHeader) {
-			return fmt.Errorf("unexpected content type for JSON error response: %s. status code: %d. body: «%s»", contentHeader, resp.StatusCode, logBody(resp.Body, maxBodySize))
+			// to print the response, set the envvar BATON_DEBUG_PRINT_RESPONSE_BODY as non-empty, instead
+			return fmt.Errorf("unexpected content type for JSON error response: %s. status code: %d", contentHeader, resp.StatusCode)
 		}
 
 		// Decode the JSON response body into the ErrorResponse
 		if err := json.Unmarshal(resp.Body, &resource); err != nil {
-			return fmt.Errorf("failed to unmarshal JSON error response: %w. status code: %d. body %v", err, resp.StatusCode, logBody(resp.Body, maxBodySize))
+			// to print the response, set the envvar BATON_DEBUG_PRINT_RESPONSE_BODY as non-empty, instead
+			return fmt.Errorf("failed to unmarshal JSON error response: %w. status code: %d", err, resp.StatusCode)
 		}
 
 		// Construct a more detailed error message
@@ -191,6 +203,9 @@ func WithErrorResponse(resource ErrorResponse) DoOption {
 
 func WithRatelimitData(resource *v2.RateLimitDescription) DoOption {
 	return func(resp *WrapperResponse) error {
+		if resource == nil {
+			return fmt.Errorf("WithRatelimitData: rate limit description is nil")
+		}
 		rl, err := ratelimit.ExtractRateLimitData(resp.StatusCode, &resp.Header)
 		if err != nil {
 			return err
@@ -232,6 +247,17 @@ func WithResponse(response interface{}) DoOption {
 
 		return status.Error(codes.Unknown, "unsupported content type")
 	}
+}
+
+func WrapErrors(preferredCode codes.Code, statusMsg string, errs ...error) error {
+	st := status.New(preferredCode, statusMsg)
+
+	if len(errs) == 0 {
+		return st.Err()
+	}
+
+	allErrs := append([]error{st.Err()}, errs...)
+	return errors.Join(allErrs...)
 }
 
 func WrapErrorsWithRateLimitInfo(preferredCode codes.Code, resp *http.Response, errs ...error) error {
@@ -281,7 +307,10 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 			var urlErr *url.Error
 			if errors.As(err, &urlErr) {
 				if urlErr.Timeout() {
-					return nil, status.Error(codes.DeadlineExceeded, fmt.Sprintf("request timeout: %v", urlErr.URL))
+					return nil, WrapErrors(codes.DeadlineExceeded, fmt.Sprintf("request timeout: %v", urlErr.URL), urlErr)
+				}
+				if urlErr.Temporary() {
+					return nil, WrapErrors(codes.Unavailable, fmt.Sprintf("temporary error: %v", urlErr.URL), urlErr)
 				}
 			}
 			if errors.Is(err, context.DeadlineExceeded) {
@@ -297,11 +326,23 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		if len(body) > 0 {
 			resp.Body = io.NopCloser(bytes.NewBuffer(body))
 		}
+		// Turn certain body read errors into grpc statuses so we retry
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			return resp, WrapErrors(codes.Unavailable, "unexpected EOF", err)
+		}
+		if errors.Is(err, syscall.ECONNRESET) {
+			return resp, WrapErrors(codes.Unavailable, "connection reset", err)
+		}
 		return resp, err
 	}
 
 	// Replace resp.Body with a no-op closer so nobody has to worry about closing the reader.
-	resp.Body = io.NopCloser(bytes.NewBuffer(body))
+	shouldPrint := os.Getenv("BATON_DEBUG_PRINT_RESPONSE_BODY")
+	if shouldPrint != "" {
+		resp.Body = io.NopCloser(wrapPrintBody(bytes.NewBuffer(body)))
+	} else {
+		resp.Body = io.NopCloser(bytes.NewBuffer(body))
+	}
 
 	wresp := WrapperResponse{
 		Header:     resp.Header,
@@ -321,7 +362,7 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 	switch resp.StatusCode {
 	case http.StatusRequestTimeout:
 		return resp, WrapErrorsWithRateLimitInfo(codes.DeadlineExceeded, resp, optErrs...)
-	case http.StatusTooManyRequests, http.StatusServiceUnavailable:
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable:
 		return resp, WrapErrorsWithRateLimitInfo(codes.Unavailable, resp, optErrs...)
 	case http.StatusNotFound:
 		return resp, WrapErrorsWithRateLimitInfo(codes.NotFound, resp, optErrs...)
@@ -329,6 +370,8 @@ func (c *BaseHttpClient) Do(req *http.Request, options ...DoOption) (*http.Respo
 		return resp, WrapErrorsWithRateLimitInfo(codes.Unauthenticated, resp, optErrs...)
 	case http.StatusForbidden:
 		return resp, WrapErrorsWithRateLimitInfo(codes.PermissionDenied, resp, optErrs...)
+	case http.StatusConflict:
+		return resp, WrapErrorsWithRateLimitInfo(codes.AlreadyExists, resp, optErrs...)
 	case http.StatusNotImplemented:
 		return resp, WrapErrorsWithRateLimitInfo(codes.Unimplemented, resp, optErrs...)
 	}
@@ -423,6 +466,10 @@ func WithContentType(ctype string) RequestOption {
 
 func WithAccept(value string) RequestOption {
 	return WithHeader(acceptHeader, value)
+}
+
+func WithBearerToken(token string) RequestOption {
+	return WithHeader(authorizationHeader, fmt.Sprintf("Bearer %s", token))
 }
 
 func (c *BaseHttpClient) NewRequest(ctx context.Context, method string, url *url.URL, options ...RequestOption) (*http.Request, error) {
