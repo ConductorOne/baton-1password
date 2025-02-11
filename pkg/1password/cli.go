@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 
@@ -15,40 +16,124 @@ import (
 
 // 1Password CLI instance.
 type Cli struct {
-	token string
+	authType string
+	token    string
 }
 
-func NewCli(token string) *Cli {
+func NewCli(authType string, token string) *Cli {
 	return &Cli{
-		token: token,
+		authType: authType,
+		token:    token,
 	}
 }
 
-type AuthResponse struct {
+type AccountDetails struct {
+	address  string
+	email    string
+	secret   string
+	password string
+}
+
+func NewAccount(address string, email string, secret string, password string) *AccountDetails {
+	return &AccountDetails{
+		address:  address,
+		email:    email,
+		secret:   secret,
+		password: password,
+	}
+}
+
+type LocalAccountDetails struct {
 	URL         string `json:"url"`
 	Email       string `json:"email"`
 	UserUUID    string `json:"user_uuid"`
 	AccountUUID string `json:"account_uuid"`
-	Shorthand   string `json:"shorthand"`
 }
 
-// Sign in to 1Password, returning the token.
-// In case account doesn't exist, it will prompt for account creation and will login the user.
-func SignIn(ctx context.Context, account string) (string, error) {
+// Get the accounts listed on the local config.
+func GetLocalAccounts(ctx context.Context) ([]LocalAccountDetails, error) {
 	l := ctxzap.Extract(ctx)
 
-	cmd := exec.Command("op", "signin", "--account", account, "--raw")
-	out := bytes.NewBuffer(nil)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = out
-	cmd.Stderr = os.Stderr
+	var err error
+	var output []byte
 
-	err := cmd.Run()
-	if err != nil {
+	cmd := exec.Command("op", "accounts", "list", "--format=json")
+	if output, err = cmd.Output(); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			l.Error(
-				"error executing command",
+				"error executing 'op accounts list' command",
+				zap.Error(err),
+				zap.String("stderr", string(exitErr.Stderr)),
+				zap.Int("exit_code", exitErr.ExitCode()),
+			)
+		}
+		return nil, fmt.Errorf("error executing command: %w", err)
+	}
+
+	var accounts []LocalAccountDetails
+	if err = json.Unmarshal(output, &accounts); err != nil {
+		return nil, fmt.Errorf("error unmarshalling response: %w", err)
+	}
+
+	return accounts, nil
+}
+
+// Returns the account UUID.
+func GetLocalAccountUUID(ctx context.Context, email string) (string, error) {
+	accounts, err := GetLocalAccounts(ctx)
+	if err != nil {
+		return "", fmt.Errorf("error getting local accounts: %w", err)
+	}
+
+	for _, account := range accounts {
+		if account.Email == email {
+			return account.AccountUUID, nil
+		}
+	}
+
+	return "", nil
+}
+
+// Adds a user account to the local config.
+func AddLocalAccount(ctx context.Context, providedAccountDetails *AccountDetails) (string, error) {
+	l := ctxzap.Extract(ctx)
+
+	var (
+		err     error
+		addIn   io.WriteCloser
+		account string
+	)
+
+	// Must be provided as environment variable
+	if err := os.Setenv("OP_SECRET_KEY", providedAccountDetails.secret); err != nil {
+		return "", err
+	}
+
+	args := []string{"account", "add", "--address", providedAccountDetails.address, "--email", providedAccountDetails.email, "--raw"}
+
+	addCmd := exec.Command("op", args...)
+	if addIn, err = addCmd.StdinPipe(); err != nil {
+		return "", err
+	}
+
+	if err = addCmd.Start(); err != nil {
+		return "", err
+	}
+
+	if _, err = fmt.Fprintf(addIn, "%s\n", providedAccountDetails.password); err != nil {
+		return "", err
+	}
+
+	if err = addIn.Close(); err != nil {
+		return "", err
+	}
+
+	if err = addCmd.Wait(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			l.Error(
+				"error executing 'op account add' command",
 				zap.Error(err),
 				zap.String("stderr", string(exitErr.Stderr)),
 				zap.Int("exit_code", exitErr.ExitCode()),
@@ -57,7 +142,108 @@ func SignIn(ctx context.Context, account string) (string, error) {
 		return "", fmt.Errorf("error starting command: %w", err)
 	}
 
+	if account, err = GetLocalAccountUUID(ctx, providedAccountDetails.email); err != nil {
+		return "", fmt.Errorf("error getting accountuuid after account add: %w", err)
+	}
+
+	l.Debug(fmt.Sprintf("Local account added: %s", account))
+
+	return account, nil
+}
+
+func GetUserToken(ctx context.Context, providedAccountDetails *AccountDetails) (string, error) {
+	l := ctxzap.Extract(ctx)
+
+	var (
+		err error
+	)
+
+	if providedAccountDetails.password == "" {
+		l.Error("password must be provided")
+		return "", fmt.Errorf("password is required for user auth-type")
+	}
+
+	account, err := GetLocalAccountUUID(ctx, providedAccountDetails.email)
+	if err != nil {
+		l.Error("failed to check local accounts: ", zap.Error(err))
+		return "", err
+	}
+
+	if account == "" {
+		if account, err = AddLocalAccount(ctx,
+			providedAccountDetails,
+		); err != nil {
+			l.Error("failed to add local account: ", zap.Error(err))
+			return "", err
+		}
+	}
+
+	token, err := SignIn(ctx,
+		account,
+		providedAccountDetails,
+	)
+
+	if err != nil {
+		l.Error("failed to SignIn: ", zap.Error(err))
+		return "", err
+	}
+
+	return token, nil
+}
+
+// Sign in to 1Password, returning the token.
+// If password is not provided, user will be prompted for it.
+func SignIn(ctx context.Context, account string, providedAccountDetails *AccountDetails) (string, error) {
+	l := ctxzap.Extract(ctx)
+
+	var (
+		out    bytes.Buffer
+		stderr bytes.Buffer
+		err    error
+		pipeIn io.WriteCloser
+	)
+
+	cmd := exec.Command("op", "signin", "--account", account, "--raw")
+
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+
+	if pipeIn, err = cmd.StdinPipe(); err != nil {
+		return "", err
+	}
+
+	if _, err = fmt.Fprintf(pipeIn, "%s\n", providedAccountDetails.password); err != nil {
+		return "", err
+	}
+
+	if err = pipeIn.Close(); err != nil {
+		return "", err
+	}
+
+	if err = cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			l.Error(
+				"error executing 'op signin --raw' command",
+				zap.Error(err),
+				zap.String("stderr", string(exitErr.Stderr)),
+				zap.Int("exit_code", exitErr.ExitCode()),
+			)
+		}
+		return "", fmt.Errorf("error executing command: %w", err)
+	}
+
+	l.Debug("SignIn Completed")
+
 	return out.String(), nil
+}
+
+type AuthResponse struct {
+	URL         string `json:"url"`
+	Email       string `json:"email"`
+	UserUUID    string `json:"user_uuid"`
+	AccountUUID string `json:"account_uuid"`
+	Shorthand   string `json:"shorthand"`
 }
 
 // GetSignedInAccount gets information about the signed in account.
@@ -227,7 +413,12 @@ func (cli *Cli) RemoveUserFromVault(ctx context.Context, vault, user, permission
 func (cli *Cli) executeCommand(ctx context.Context, args []string, res interface{}) error {
 	l := ctxzap.Extract(ctx)
 
-	defaultArgs := []string{"--format=json", "--session", cli.token}
+	defaultArgs := []string{"--format=json"}
+
+	if cli.authType == "user" {
+		args = append(args, []string{"--session", cli.token}...)
+	}
+
 	defaultArgs = append(args, defaultArgs...)
 
 	cmd := exec.Command("op", defaultArgs...) // #nosec

@@ -61,7 +61,11 @@ Available Commands:
   help               Help about any command
 
 Flags:
-      --address string                    required: Sign in address of your 1Password account ($BATON_ADDRESS)
+      --address string                    Sign in address of your 1Password account. Defaults to 'my.1password.com' ($BATON_ADDRESS)
+      --email string                      Email for your 1Password account. ($BATON_EMAIL)
+      --secret-key string                 Secret Key for your 1Password account. ($BATON_SECRET_KEY)
+      --password string                   Password for your 1Password account. ($BATON_PASSWORD) If not provided, manual input required.
+      --auth-type string                  How the CLI should authenticate. Options: "user" (default) and "service". If using "service" authentication the OP_SERVICE_ACCOUNT_TOKEN environment variable must be set.
       --client-id string                  The client ID used to authenticate with ConductorOne ($BATON_CLIENT_ID)
       --client-secret string              The client secret used to authenticate with ConductorOne ($BATON_CLIENT_SECRET)
   -f, --file string                       The path to the c1z file to sync with ($BATON_FILE) (default "sync.c1z")

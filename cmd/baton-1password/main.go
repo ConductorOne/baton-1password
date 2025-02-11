@@ -47,6 +47,12 @@ func main() {
 func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, error) {
 	l := ctxzap.Extract(ctx)
 	limitVaultPerms := v.GetStringSlice(config2.LimitVaultPermissionsField.FieldName)
+
+	var (
+		err   error
+		token string
+	)
+
 	if len(limitVaultPerms) > 0 {
 		validPerms := connector.AllVaultPermissions()
 		for _, perm := range limitVaultPerms {
@@ -57,15 +63,39 @@ func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, e
 		}
 	}
 
-	token, err := onepassword.SignIn(ctx, v.GetString(config2.AddressField.FieldName))
-	if err != nil {
-		l.Error("failed to login: ", zap.Error(err))
-		return nil, err
+	providedAccountDetails := onepassword.NewAccount(
+		v.GetString(config2.AddressField.FieldName),
+		v.GetString(config2.EmailField.FieldName),
+		v.GetString(config2.KeyField.FieldName),
+		v.GetString(config2.PasswordField.FieldName),
+	)
+
+	authType := v.GetString(config2.AuthTypeField.FieldName)
+
+	switch authType {
+	case "service":
+		if os.Getenv("OP_SERVICE_ACCOUNT_TOKEN") == "" {
+			l.Error("environment variable OP_SERVICE_ACCOUNT_TOKEN missing")
+			return nil, fmt.Errorf("service account authentication requested, but required environment variable OP_SERVICE_ACCOUNT_TOKEN is missing")
+		}
+	case "user":
+		if token, err = onepassword.GetUserToken(
+			ctx,
+			providedAccountDetails,
+		); err != nil {
+			l.Error("unable to get token", zap.Error(err))
+			return nil, err
+		}
+	default:
+		l.Error(fmt.Sprintf("authType provided ('%s') is not handled", authType))
+		return nil, fmt.Errorf("authType provided ('%s') is not handled", authType)
 	}
 
 	cb, err := connector.New(
 		ctx,
+		authType,
 		token,
+		providedAccountDetails,
 		limitVaultPerms,
 	)
 	if err != nil {
