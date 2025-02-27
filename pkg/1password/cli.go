@@ -37,6 +37,13 @@ type AuthResponse struct {
 func SignIn(ctx context.Context, account string) (string, error) {
 	l := ctxzap.Extract(ctx)
 
+	serviceAccountVal, serviceAccountExists := os.LookupEnv("OP_SERVICE_ACCOUNT_TOKEN")
+
+	if serviceAccountExists {
+		l.Debug("Service account token detected, using service account mode")
+		return serviceAccountVal, nil
+	}
+
 	cmd := exec.Command("op", "signin", "--account", account, "--raw")
 	out := bytes.NewBuffer(nil)
 	cmd.Stdin = os.Stdin
