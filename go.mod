@@ -1,6 +1,6 @@
 module github.com/conductorone/baton-1password
 
-go 1.22.0
+go 1.23
 
 require (
 	github.com/conductorone/baton-sdk v0.2.46
