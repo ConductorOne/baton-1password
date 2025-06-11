@@ -7,7 +7,7 @@ import (
 
 	"strings"
 
-	onepassword "github.com/conductorone/baton-1password/pkg/1password"
+	onepassword "github.com/conductorone/baton-1password/pkg/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
@@ -81,7 +81,7 @@ const businessAccountType = "BUSINESS"
 
 type vaultResourceType struct {
 	resourceType          *v2.ResourceType
-	cli                   *onepassword.Cli
+	cli                   *onepassword.OnePasswordClient
 	limitVaultPermissions mapset.Set[string]
 }
 
@@ -397,7 +397,7 @@ func (g *vaultResourceType) Revoke(ctx context.Context, grant *v2.Grant) (annota
 	return nil, nil
 }
 
-func vaultBuilder(cli *onepassword.Cli, limitVaultPermissions mapset.Set[string]) *vaultResourceType {
+func vaultBuilder(cli *onepassword.OnePasswordClient, limitVaultPermissions mapset.Set[string]) *vaultResourceType {
 	return &vaultResourceType{
 		resourceType:          resourceTypeVault,
 		cli:                   cli,

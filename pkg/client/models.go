@@ -22,6 +22,20 @@ type Account struct {
 	CreatedAt string `json:"created_at"`
 }
 
+type AccountDetails struct {
+	address  string
+	email    string
+	secret   string
+	password string
+}
+
+type LocalAccountDetails struct {
+	URL         string `json:"url"`
+	Email       string `json:"email"`
+	UserUUID    string `json:"user_uuid"`
+	AccountUUID string `json:"account_uuid"`
+}
+
 type Group struct {
 	BaseType
 	Description string   `json:"description,omitempty"`
@@ -33,4 +47,12 @@ type Group struct {
 type Vault struct {
 	BaseType
 	ContentVersion int `json:"content_version"`
+}
+
+type AuthResponse struct {
+	URL         string `json:"url"`
+	Email       string `json:"email"`
+	UserUUID    string `json:"user_uuid"`
+	AccountUUID string `json:"account_uuid"`
+	Shorthand   string `json:"shorthand"`
 }

@@ -14,24 +14,16 @@ import (
 	"go.uber.org/zap"
 )
 
-// 1Password CLI instance.
-type Cli struct {
+type OnePasswordClient struct {
 	authType string
 	token    string
 }
 
-func NewCli(authType string, token string) *Cli {
-	return &Cli{
+func NewCli(authType string, token string) *OnePasswordClient {
+	return &OnePasswordClient{
 		authType: authType,
 		token:    token,
 	}
-}
-
-type AccountDetails struct {
-	address  string
-	email    string
-	secret   string
-	password string
 }
 
 func NewAccount(address string, email string, secret string, password string) *AccountDetails {
@@ -41,13 +33,6 @@ func NewAccount(address string, email string, secret string, password string) *A
 		secret:   secret,
 		password: password,
 	}
-}
-
-type LocalAccountDetails struct {
-	URL         string `json:"url"`
-	Email       string `json:"email"`
-	UserUUID    string `json:"user_uuid"`
-	AccountUUID string `json:"account_uuid"`
 }
 
 // Get the accounts listed on the local config.
@@ -238,20 +223,12 @@ func SignIn(ctx context.Context, account string, providedAccountDetails *Account
 	return out.String(), nil
 }
 
-type AuthResponse struct {
-	URL         string `json:"url"`
-	Email       string `json:"email"`
-	UserUUID    string `json:"user_uuid"`
-	AccountUUID string `json:"account_uuid"`
-	Shorthand   string `json:"shorthand"`
-}
-
 // GetSignedInAccount gets information about the signed in account.
-func (cli *Cli) GetSignedInAccount(ctx context.Context) (AuthResponse, error) {
+func (c *OnePasswordClient) GetSignedInAccount(ctx context.Context) (AuthResponse, error) {
 	args := []string{"whoami"}
 
 	var res AuthResponse
-	err := cli.executeCommand(ctx, args, &res)
+	err := c.executeCommand(ctx, args, &res)
 	if err != nil {
 		return AuthResponse{}, fmt.Errorf("error getting signed in account details: %w", err)
 	}
@@ -260,11 +237,11 @@ func (cli *Cli) GetSignedInAccount(ctx context.Context) (AuthResponse, error) {
 }
 
 // GetAccount gets information about the account.
-func (cli *Cli) GetAccount(ctx context.Context) (Account, error) {
+func (c *OnePasswordClient) GetAccount(ctx context.Context) (Account, error) {
 	args := []string{"account", "get"}
 
 	var res Account
-	err := cli.executeCommand(ctx, args, &res)
+	err := c.executeCommand(ctx, args, &res)
 	if err != nil {
 		return Account{}, fmt.Errorf("error getting account: %w", err)
 	}
@@ -273,11 +250,11 @@ func (cli *Cli) GetAccount(ctx context.Context) (Account, error) {
 }
 
 // ListUsers lists all users in the account.
-func (cli *Cli) ListUsers(ctx context.Context) ([]User, error) {
+func (c *OnePasswordClient) ListUsers(ctx context.Context) ([]User, error) {
 	args := []string{"user", "list"}
 
 	var res []User
-	err := cli.executeCommand(ctx, args, &res)
+	err := c.executeCommand(ctx, args, &res)
 	if err != nil {
 		return nil, fmt.Errorf("error listing users: %w", err)
 	}
@@ -286,11 +263,11 @@ func (cli *Cli) ListUsers(ctx context.Context) ([]User, error) {
 }
 
 // ListGroups lists all groups in the account.
-func (cli *Cli) ListGroups(ctx context.Context) ([]Group, error) {
+func (c *OnePasswordClient) ListGroups(ctx context.Context) ([]Group, error) {
 	args := []string{"group", "list"}
 
 	var res []Group
-	err := cli.executeCommand(ctx, args, &res)
+	err := c.executeCommand(ctx, args, &res)
 	if err != nil {
 		return nil, fmt.Errorf("error listing groups: %w", err)
 	}
@@ -299,11 +276,11 @@ func (cli *Cli) ListGroups(ctx context.Context) ([]Group, error) {
 }
 
 // ListGroupMembers lists all members of a group.
-func (cli *Cli) ListGroupMembers(ctx context.Context, group string) ([]User, error) {
+func (c *OnePasswordClient) ListGroupMembers(ctx context.Context, group string) ([]User, error) {
 	args := []string{"group", "user", "list", group}
 
 	var res []User
-	err := cli.executeCommand(ctx, args, &res)
+	err := c.executeCommand(ctx, args, &res)
 	if err != nil {
 		return nil, fmt.Errorf("error listing group members: %w", err)
 	}
@@ -312,11 +289,11 @@ func (cli *Cli) ListGroupMembers(ctx context.Context, group string) ([]User, err
 }
 
 // ListVaults lists all vaults in the account.
-func (cli *Cli) ListVaults(ctx context.Context) ([]Vault, error) {
+func (c *OnePasswordClient) ListVaults(ctx context.Context) ([]Vault, error) {
 	args := []string{"vault", "list"}
 
 	var res []Vault
-	err := cli.executeCommand(ctx, args, &res)
+	err := c.executeCommand(ctx, args, &res)
 	if err != nil {
 		return nil, fmt.Errorf("error listing vaults: %w", err)
 	}
@@ -325,11 +302,11 @@ func (cli *Cli) ListVaults(ctx context.Context) ([]Vault, error) {
 }
 
 // ListVaultGroups lists all groups that have access to a vault.
-func (cli *Cli) ListVaultGroups(ctx context.Context, vaultId string) ([]Group, error) {
+func (c *OnePasswordClient) ListVaultGroups(ctx context.Context, vaultId string) ([]Group, error) {
 	args := []string{"vault", "group", "list", vaultId}
 
 	var res []Group
-	err := cli.executeCommand(ctx, args, &res)
+	err := c.executeCommand(ctx, args, &res)
 	if err != nil {
 		return nil, fmt.Errorf("error listing vault groups: %w", err)
 	}
@@ -338,11 +315,11 @@ func (cli *Cli) ListVaultGroups(ctx context.Context, vaultId string) ([]Group, e
 }
 
 // ListVaultMembers lists all users that have access to a vault.
-func (cli *Cli) ListVaultMembers(ctx context.Context, vaultId string) ([]User, error) {
+func (c *OnePasswordClient) ListVaultMembers(ctx context.Context, vaultId string) ([]User, error) {
 	args := []string{"vault", "user", "list", vaultId}
 
 	var res []User
-	err := cli.executeCommand(ctx, args, &res)
+	err := c.executeCommand(ctx, args, &res)
 	if err != nil {
 		return nil, fmt.Errorf("error listing vault members: %w", err)
 	}
@@ -351,10 +328,10 @@ func (cli *Cli) ListVaultMembers(ctx context.Context, vaultId string) ([]User, e
 }
 
 // AddUserToGroup adds user to group.
-func (cli *Cli) AddUserToGroup(ctx context.Context, group, role, user string) error {
+func (c *OnePasswordClient) AddUserToGroup(ctx context.Context, group, role, user string) error {
 	args := []string{"group", "user", "grant", "--group", group, "--role", role, "--user", user}
 
-	err := cli.executeCommand(ctx, args, nil)
+	err := c.executeCommand(ctx, args, nil)
 	if err != nil {
 		return fmt.Errorf("error adding user as a member: %w", err)
 	}
@@ -362,7 +339,7 @@ func (cli *Cli) AddUserToGroup(ctx context.Context, group, role, user string) er
 	// role can either member or manager but in order for user to be a manager the member role needs to be assigned first.
 	// so we execute the command once more in order for member to become a manager.
 	if role == "manager" {
-		err := cli.executeCommand(ctx, args, nil)
+		err := c.executeCommand(ctx, args, nil)
 		if err != nil {
 			return fmt.Errorf("error adding user as a manager: %w", err)
 		}
@@ -372,10 +349,10 @@ func (cli *Cli) AddUserToGroup(ctx context.Context, group, role, user string) er
 }
 
 // RemoveUserFromGroup removes user from group.
-func (cli *Cli) RemoveUserFromGroup(ctx context.Context, group, user string) error {
+func (c *OnePasswordClient) RemoveUserFromGroup(ctx context.Context, group, user string) error {
 	args := []string{"group", "user", "revoke", "--group", group, "--user", user}
 
-	err := cli.executeCommand(ctx, args, nil)
+	err := c.executeCommand(ctx, args, nil)
 	if err != nil {
 		return fmt.Errorf("error removing user from group: %w", err)
 	}
@@ -384,10 +361,10 @@ func (cli *Cli) RemoveUserFromGroup(ctx context.Context, group, user string) err
 }
 
 // AddUserToVault adds user to vault.
-func (cli *Cli) AddUserToVault(ctx context.Context, vault, user, permissions string) error {
+func (c *OnePasswordClient) AddUserToVault(ctx context.Context, vault, user, permissions string) error {
 	args := []string{"vault", "user", "grant", "--vault", vault, "--user", user, "--permissions", permissions}
 
-	err := cli.executeCommand(ctx, args, nil)
+	err := c.executeCommand(ctx, args, nil)
 	if err != nil {
 		return fmt.Errorf("error adding user to vault: %w", err)
 	}
@@ -399,10 +376,10 @@ func (cli *Cli) AddUserToVault(ctx context.Context, vault, user, permissions str
 // This will error out if the principal's grant was inherited via a group membership with permissions to the vault.
 // 1Password CLI errors with "the accessor doesn't have any permissions" if the grant is inherited from a group.
 // Avoid mixing group and individual grants to vaults when using just-in-time provisioning.
-func (cli *Cli) RemoveUserFromVault(ctx context.Context, vault, user, permissions string) error {
+func (c *OnePasswordClient) RemoveUserFromVault(ctx context.Context, vault, user, permissions string) error {
 	args := []string{"vault", "user", "revoke", "--vault", vault, "--user", user, "--permissions", permissions}
 
-	err := cli.executeCommand(ctx, args, nil)
+	err := c.executeCommand(ctx, args, nil)
 	if err != nil {
 		return fmt.Errorf("error removing user from vault: %w", err)
 	}
@@ -410,13 +387,13 @@ func (cli *Cli) RemoveUserFromVault(ctx context.Context, vault, user, permission
 	return nil
 }
 
-func (cli *Cli) executeCommand(ctx context.Context, args []string, res interface{}) error {
+func (c *OnePasswordClient) executeCommand(ctx context.Context, args []string, res interface{}) error {
 	l := ctxzap.Extract(ctx)
 
 	defaultArgs := []string{"--format=json"}
 
-	if cli.authType == "user" {
-		args = append(args, []string{"--session", cli.token}...)
+	if c.authType == "user" {
+		args = append(args, []string{"--session", c.token}...)
 	}
 
 	defaultArgs = append(args, defaultArgs...)
