@@ -3,7 +3,7 @@ package connector
 import (
 	"context"
 
-	onepassword "github.com/conductorone/baton-1password/pkg/1password"
+	onepassword "github.com/conductorone/baton-1password/pkg/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
@@ -14,7 +14,7 @@ import (
 
 type accountResourceType struct {
 	resourceType *v2.ResourceType
-	cli          *onepassword.Cli
+	cli          *onepassword.OnePasswordClient
 }
 
 func (a *accountResourceType) ResourceType(_ context.Context) *v2.ResourceType {
@@ -89,7 +89,7 @@ func (a *accountResourceType) Grants(ctx context.Context, resource *v2.Resource,
 	return rv, "", nil, nil
 }
 
-func accountBuilder(cli *onepassword.Cli) *accountResourceType {
+func accountBuilder(cli *onepassword.OnePasswordClient) *accountResourceType {
 	return &accountResourceType{
 		resourceType: resourceTypeAccount,
 		cli:          cli,

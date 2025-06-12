@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	onepassword "github.com/conductorone/baton-1password/pkg/1password"
+	onepassword "github.com/conductorone/baton-1password/pkg/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
@@ -13,7 +13,7 @@ import (
 
 type userResourceType struct {
 	resourceType *v2.ResourceType
-	cli          *onepassword.Cli
+	cli          *onepassword.OnePasswordClient
 }
 
 func (u *userResourceType) ResourceType(_ context.Context) *v2.ResourceType {
@@ -102,7 +102,7 @@ func (u *userResourceType) Grants(ctx context.Context, _ *v2.Resource, _ *pagina
 	return nil, "", nil, nil
 }
 
-func userBuilder(cli *onepassword.Cli) *userResourceType {
+func userBuilder(cli *onepassword.OnePasswordClient) *userResourceType {
 	return &userResourceType{
 		resourceType: resourceTypeUser,
 		cli:          cli,

@@ -4,47 +4,23 @@ import (
 	"context"
 	"fmt"
 
-	onepassword "github.com/conductorone/baton-1password/pkg/1password"
+	onepassword "github.com/conductorone/baton-1password/pkg/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	mapset "github.com/deckarep/golang-set/v2"
 )
 
-var (
-	resourceTypeUser = &v2.ResourceType{
-		Id:          "user",
-		DisplayName: "User",
-		Traits: []v2.ResourceType_Trait{
-			v2.ResourceType_TRAIT_USER,
-		},
-		Annotations: annotationsForUserResourceType(),
-	}
-	resourceTypeGroup = &v2.ResourceType{
-		Id:          "group",
-		DisplayName: "Group",
-		Traits: []v2.ResourceType_Trait{
-			v2.ResourceType_TRAIT_GROUP,
-		},
-	}
-	resourceTypeAccount = &v2.ResourceType{
-		Id:          "account",
-		DisplayName: "Account",
-	}
-	resourceTypeVault = &v2.ResourceType{
-		Id:          "vault",
-		DisplayName: "Vault",
-	}
-)
-
 type OnePassword struct {
-	cli                   *onepassword.Cli
+	cli                   *onepassword.OnePasswordClient
+	accountDetails        *onepassword.AccountDetails
 	limitVaultPermissions mapset.Set[string]
 }
 
-func New(ctx context.Context, token string, limitVaultPermissions []string) (*OnePassword, error) {
+func New(ctx context.Context, authType string, token string, providedAccountDetails *onepassword.AccountDetails, limitVaultPermissions []string) (*OnePassword, error) {
 	op := &OnePassword{
-		cli: onepassword.NewCli(token),
+		cli:            onepassword.NewCli(authType, token),
+		accountDetails: providedAccountDetails,
 	}
 	if len(limitVaultPermissions) > 0 {
 		op.limitVaultPermissions = mapset.NewSet(limitVaultPermissions...)

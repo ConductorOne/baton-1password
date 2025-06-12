@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	onepassword "github.com/conductorone/baton-1password/pkg/1password"
+	onepassword "github.com/conductorone/baton-1password/pkg/client"
 	v2 "github.com/conductorone/baton-sdk/pb/c1/connector/v2"
 	"github.com/conductorone/baton-sdk/pkg/annotations"
 	"github.com/conductorone/baton-sdk/pkg/pagination"
@@ -18,7 +18,7 @@ import (
 
 type groupResourceType struct {
 	resourceType *v2.ResourceType
-	cli          *onepassword.Cli
+	cli          *onepassword.OnePasswordClient
 }
 
 const (
@@ -84,11 +84,12 @@ func (g *groupResourceType) Entitlements(_ context.Context, resource *v2.Resourc
 	var rv []*v2.Entitlement
 
 	memberOptions := PopulateOptions(resource.DisplayName, memberEntitlement, resource.Id.ResourceType)
-	memberEntitlement := ent.NewAssignmentEntitlement(resource, memberEntitlement, memberOptions...)
+	memberEnt := ent.NewAssignmentEntitlement(resource, memberEntitlement, memberOptions...)
 
 	managerOptions := PopulateOptions(resource.DisplayName, managerEntitlement, resource.Id.ResourceType)
-	managerEntitlement := ent.NewPermissionEntitlement(resource, managerEntitlement, managerOptions...)
-	rv = append(rv, memberEntitlement, managerEntitlement)
+	managerEnt := ent.NewPermissionEntitlement(resource, managerEntitlement, managerOptions...)
+
+	rv = append(rv, memberEnt, managerEnt)
 
 	return rv, "", nil, nil
 }
@@ -165,7 +166,7 @@ func (o *groupResourceType) Revoke(ctx context.Context, grant *v2.Grant) (annota
 	return nil, nil
 }
 
-func groupBuilder(cli *onepassword.Cli) *groupResourceType {
+func groupBuilder(cli *onepassword.OnePasswordClient) *groupResourceType {
 	return &groupResourceType{
 		resourceType: resourceTypeGroup,
 		cli:          cli,
