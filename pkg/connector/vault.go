@@ -67,14 +67,59 @@ var dependencyMap = map[string][]string{
 	"export_items":            {"view_item_history", "view_and_copy_passwords", "view_items"},
 	"copy_and_share_items":    {"view_item_history", "view_and_copy_passwords", "view_items"},
 	"print_items":             {"view_item_history", "view_and_copy_passwords", "view_items"},
+	"allow_editing":           {"allow_viewing"},
 }
 
-// addPermissionDeps Takes a permission, returns it and its dependencies in a comma-separated string.
-func addPermissionDeps(permission string) string {
-	res := []string{permission}
-	deps := dependencyMap[permission]
-	res = append(res, deps...)
-	return strings.Join(res, ",")
+// Used to determine the permissions to revoke when a user's permission is revoked.
+var reverseDependencyMap = map[string][]string{
+	"view_items": {"create_items", "view_and_copy_passwords", "edit_items", "archive_items", "delete_items", "import_items",
+		"export_items", "copy_and_share_items", "print_items"},
+	"view_and_copy_passwords": {"edit_items", "archive_items", "delete_items", "view_item_history", "export_items", "copy_and_share_items", "print_items"},
+	"edit_items":              {"archive_items", "delete_items"},
+	"view_item_history":       {"export_items", "copy_and_share_items", "print_items"},
+	"create_items":            {"import_items"},
+	"allow_viewing":           {"allow_editing"},
+}
+
+// resolveDeps recursively resolves all dependencies of a given permission.
+// It traverses the dependency graph using depMap, tracking visited permissions
+// with the seen map to avoid cycles and duplicates.
+// Returns a list of all dependencies plus the permission itself, in order.
+func resolveDeps(permission string, depMap map[string][]string, seen map[string]bool) []string {
+	if seen[permission] {
+		return nil
+	}
+	seen[permission] = true
+
+	deps := []string{}
+	for _, dep := range depMap[permission] {
+		deps = append(deps, resolveDeps(dep, depMap, seen)...)
+	}
+	deps = append(deps, permission)
+	return deps
+}
+
+// expandPermissions returns the full list of permissions required by
+// expanding the dependencies of the given permission based on dependencyMap.
+// It ensures no duplicates by tracking visited permissions.
+func expandPermissions(permission string) []string {
+	seen := make(map[string]bool)
+	return resolveDeps(permission, dependencyMap, seen)
+}
+
+// expandPermissionsForRevoke returns the full list of permissions that depend
+// on the given permission, based on reverseDependencyMap. This is useful
+// for revoking permissions because it identifies all dependent permissions
+// that must also be revoked. It returns a unique set of permissions.
+func expandPermissionsForRevoke(permission string) []string {
+	seen := make(map[string]bool)
+	deps := resolveDeps(permission, reverseDependencyMap, seen)
+
+	unique := mapset.NewSet[string]()
+	for _, p := range deps {
+		unique.Add(p)
+	}
+	return unique.ToSlice()
 }
 
 const businessAccountType = "BUSINESS"
@@ -316,39 +361,32 @@ func (g *vaultResourceType) Grants(ctx context.Context, resource *v2.Resource, p
 // Grant a user access to a vault.
 // grants to vaults must be granted and revoked from individual users only when using just-in-time provisioning.
 // See Revoke limitations for more details.
+// If the connector is used through a service account, it can only grant or revoke permissions on those stores that have been created from that service account, otherwise it will return an error.
 func (g *vaultResourceType) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) (annotations.Annotations, error) {
-	l := ctxzap.Extract(ctx)
-	grantString := entitlement.Id
-	// Split out and get the permission from the grant string.
-	p := strings.Split(grantString, ":")
-	permissionGrant := p[len(p)-1]
-	// Formatting to replace spaces with _
-	permissionGrant = strings.ReplaceAll(permissionGrant, " ", "_")
-	// add the dependencies to the permission
-	permission := addPermissionDeps(permissionGrant)
-
 	username := principal.DisplayName
 	vaultId := entitlement.Resource.Id.Resource
 
-	l.Info("baton-1password: granting vault access",
-		zap.String("principal_id", principal.Id.Resource),
-		zap.String("vault_id", vaultId),
-		zap.String("username", username),
-		zap.String("permission", permission),
-	)
+	permissionGrant, err := extractRoleFromEntitlementID(entitlement.Id)
+	if err != nil {
+		return nil, fmt.Errorf("could not extract role: %w", err)
+	}
+
+	account, err := g.cli.GetAccount(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("could not fetch account: %w", err)
+	}
+
+	permissionsList := getPermissionsForGrantRevoke(permissionGrant, account.Type, false)
+
+	permissions := strings.Join(permissionsList, ",")
+
 	if principal.Id.ResourceType != resourceTypeUser.Id && principal.Id.ResourceType != resourceTypeGroup.Id {
-		l.Error(
-			"baton-1password: only users or groups can be granted vault access",
-			zap.String("principal_type", principal.Id.ResourceType),
-			zap.String("principal_id", principal.Id.Resource),
-		)
 		return nil, fmt.Errorf("baton-1password: only users or groups can be granted vault access")
 	}
 
-	err := g.cli.AddUserToVault(ctx, vaultId, username, permission)
-
+	err = g.cli.AddUserToVault(ctx, vaultId, username, permissions)
 	if err != nil {
-		return nil, fmt.Errorf("baton-1password: failed granting to vault access")
+		return nil, fmt.Errorf("baton-1password: failed granting to vault access: %w", err)
 	}
 
 	return nil, nil
@@ -358,40 +396,35 @@ func (g *vaultResourceType) Grant(ctx context.Context, principal *v2.Resource, e
 // This will error out if the principal's grant was inherited via a group membership with permissions to the vault.
 // 1Password CLI errors with "the accessor doesn't have any permissions" if the grant is inherited from a group.
 // Avoid mixing group and individual grants to vaults when using just-in-time provisioning.
+// If the connector is used through a service account, it can only grant or revoke permissions on those stores that have been created from that service account, otherwise it will return an error.
 func (g *vaultResourceType) Revoke(ctx context.Context, grant *v2.Grant) (annotations.Annotations, error) {
-	l := ctxzap.Extract(ctx)
 	entitlement := grant.Entitlement
-	grantString := entitlement.Id
-	// Split out and get the permission from the grant string.
-	p := strings.Split(grantString, ":")
-	permissionGrant := p[len(p)-1]
-	// Formatting to replace spaces with _
-	permissionGrant = strings.ReplaceAll(permissionGrant, " ", "_")
-	// add the dependencies to the permission
-	permission := addPermissionDeps(permissionGrant)
+
+	permissionGrant, err := extractRoleFromEntitlementID(entitlement.Id)
+	if err != nil {
+		return nil, fmt.Errorf("could not extract role: %w", err)
+	}
+
+	account, err := g.cli.GetAccount(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("could not fetch account: %w", err)
+	}
+
+	permissionsList := getPermissionsForGrantRevoke(permissionGrant, account.Type, true)
+
+	permissions := strings.Join(permissionsList, ",")
 
 	principal := grant.Principal
 	username := principal.DisplayName
 	vaultId := entitlement.Resource.Id.Resource
-	l.Info("baton-1password: revoking vault access",
-		zap.String("principal_id", principal.Id.Resource),
-		zap.String("vault_id", vaultId),
-		zap.String("username", username),
-		zap.String("permission", permission),
-	)
+
 	if principal.Id.ResourceType != resourceTypeUser.Id {
-		l.Error(
-			"baton-1password: only users can have group membership revoked",
-			zap.String("principal_type", principal.Id.ResourceType),
-			zap.String("principal_id", principal.Id.Resource),
-		)
-		return nil, errors.New("baton-1password: only users can have group membership revoked")
+		return nil, errors.New("baton-1password: only users can have vault access revoked")
 	}
 
-	err := g.cli.RemoveUserFromVault(ctx, vaultId, username, permission)
-
+	err = g.cli.RemoveUserFromVault(ctx, vaultId, username, permissions)
 	if err != nil {
-		return nil, errors.New("baton-1password: failed removing user from group")
+		return nil, fmt.Errorf("baton-1password: failed removing user from vault: %w", err)
 	}
 
 	return nil, nil

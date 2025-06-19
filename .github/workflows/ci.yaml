@@ -7,7 +7,7 @@ jobs:
       - name: Install Go
         uses: actions/setup-go@v4
         with:
-          go-version: 1.22.x
+          go-version: 1.23.x
       - name: Checkout code
         uses: actions/checkout@v3
       - name: Run linters
@@ -18,7 +18,7 @@ jobs:
   go-test:
     strategy:
       matrix:
-        go-version: [1.22.x]
+        go-version: [1.23.x]
         platform: [ubuntu-latest]
     runs-on: ${{ matrix.platform }}
     steps:
@@ -36,3 +36,84 @@ jobs:
         uses: guyarb/golang-test-annotations@v0.5.1
         with:
           test-results: test.json
+
+  test:
+    runs-on: ubuntu-latest
+    env:
+      BATON_LOG_LEVEL: debug
+      ONE_PASSWORD_EMAIL: ${{ secrets.EMAIL }}
+      ONE_PASSWORD_PASSWORD: ${{ secrets.PASSWORD }}
+      ONE_PASSWORD_SECRET_KEY:  ${{ secrets.SECRET_KEY }}
+      ONE_PASSWORD_ACCOUNT_ADDRESS: ${{ secrets.ADDRESS }}
+      GROUP_ENTITLEMENT: ${{ vars.GROUP_ENTITLEMENT }}
+      GROUP_GRANT: ${{ vars.GROUP_GRANT }}
+      PRINCIPAL: ${{ vars.PRINCIPAL }}
+      VAULT_ENTITLEMENT: ${{ vars.VAULT_ENTITLEMENT }}
+      VAULT_GRANT: ${{ vars.VAULT_GRANT }}
+      PRINCIPAL_TYPE: ${{ vars.PRINCIPAL_TYPE }}
+
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: 1.23.x
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install 1Password CLI
+        run: |
+          curl -sS https://downloads.1password.com/linux/keys/1password.asc | sudo gpg --dearmor -o /usr/share/keyrings/1password-archive-keyring.gpg
+          echo 'deb [signed-by=/usr/share/keyrings/1password-archive-keyring.gpg] https://downloads.1password.com/linux/debian/amd64 stable main' | sudo tee /etc/apt/sources.list.d/1password.list
+          sudo apt update
+          sudo apt install -y 1password-cli
+          op --version
+
+      - name: Build baton-1password
+        run: go build ./cmd/baton-1password
+
+      - name: Run baton-1password (generate sync.c1z)
+        run: ./baton-1password --password=${{ env.ONE_PASSWORD_PASSWORD }} --email=${{ env.ONE_PASSWORD_EMAIL }} --secret-key=${{ env.ONE_PASSWORD_SECRET_KEY }} --address=${{ env.ONE_PASSWORD_ACCOUNT_ADDRESS }}
+
+      - name: Install baton
+        run: |
+          chmod +x ./scripts/get-baton.sh
+          ./scripts/get-baton.sh
+          mv baton /usr/local/bin/
+
+      - name: Grant entitlement Group
+        run: ./baton-1password --password=${{ env.ONE_PASSWORD_PASSWORD }} --email=${{ env.ONE_PASSWORD_EMAIL }} --secret-key=${{ env.ONE_PASSWORD_SECRET_KEY }} --address=${{ env.ONE_PASSWORD_ACCOUNT_ADDRESS }} --grant-entitlement=${{ env.GROUP_ENTITLEMENT }} --grant-principal=${{env.PRINCIPAL}} --grant-principal-type=${{ env.PRINCIPAL_TYPE }}
+
+      - name: Re-sync the data from 1password
+        run: ./baton-1password --password=${{ env.ONE_PASSWORD_PASSWORD }} --email=${{ env.ONE_PASSWORD_EMAIL }} --secret-key=${{ env.ONE_PASSWORD_SECRET_KEY }} --address=${{ env.ONE_PASSWORD_ACCOUNT_ADDRESS }}
+
+      - name: Check grants was granted
+        run: baton grants --entitlement="${{ env.GROUP_ENTITLEMENT }}" --output-format=json | jq --exit-status '.grants[].principal.id.resource == "${{ env.PRINCIPAL }}"' | grep true
+
+      - name: Revoke grants Group
+        run: ./baton-1password --password=${{ env.ONE_PASSWORD_PASSWORD }} --email=${{ env.ONE_PASSWORD_EMAIL }} --secret-key=${{ env.ONE_PASSWORD_SECRET_KEY }} --address=${{ env.ONE_PASSWORD_ACCOUNT_ADDRESS }} --revoke-grant="${{env.GROUP_GRANT}}"
+
+      - name: Re-sync the data from 1password
+        run: ./baton-1password --password=${{ env.ONE_PASSWORD_PASSWORD }} --email=${{ env.ONE_PASSWORD_EMAIL }} --secret-key=${{ env.ONE_PASSWORD_SECRET_KEY }} --address=${{ env.ONE_PASSWORD_ACCOUNT_ADDRESS }}
+
+      - name: Check grant was revoked
+        run: ./baton-1password --password=${{ env.ONE_PASSWORD_PASSWORD }} --email=${{ env.ONE_PASSWORD_EMAIL }} --secret-key=${{ env.ONE_PASSWORD_SECRET_KEY }} --address=${{ env.ONE_PASSWORD_ACCOUNT_ADDRESS }} && baton grants --entitlement="${{ env.GROUP_ENTITLEMENT }}" --output-format=json | jq --exit-status 'if .grants then .grants[]?.principal.id.resource != "${{ env.PRINCIPAL }}" else . end'
+
+      - name: Grant entitlement Vault
+        run: ./baton-1password --password=${{ env.ONE_PASSWORD_PASSWORD }} --email=${{ env.ONE_PASSWORD_EMAIL }} --secret-key=${{ env.ONE_PASSWORD_SECRET_KEY }} --address=${{ env.ONE_PASSWORD_ACCOUNT_ADDRESS }} --grant-entitlement=${{ env.VAULT_ENTITLEMENT }} --grant-principal=${{ env.PRINCIPAL }} --grant-principal-type=${{ env.PRINCIPAL_TYPE }}
+
+      - name: Re-sync the data from 1password
+        run: ./baton-1password --password=${{ env.ONE_PASSWORD_PASSWORD }} --email=${{ env.ONE_PASSWORD_EMAIL }} --secret-key=${{ env.ONE_PASSWORD_SECRET_KEY }} --address=${{ env.ONE_PASSWORD_ACCOUNT_ADDRESS }}
+
+      - name: Check grants was granted
+        run: baton grants --entitlement="${{ env.VAULT_ENTITLEMENT }}" --output-format=json | jq --exit-status '.grants[].principal.id.resource == "${{ env.PRINCIPAL }}"' | grep true
+
+      - name: Revoke grants Vault
+        run: ./baton-1password --password=${{ env.ONE_PASSWORD_PASSWORD }} --email=${{ env.ONE_PASSWORD_EMAIL }} --secret-key=${{ env.ONE_PASSWORD_SECRET_KEY }} --address=${{ env.ONE_PASSWORD_ACCOUNT_ADDRESS }}  --revoke-grant="${{env.VAULT_GRANT}}"
+
+      - name: Re-sync the data from 1password
+        run: ./baton-1password --password=${{ env.ONE_PASSWORD_PASSWORD }} --email=${{ env.ONE_PASSWORD_EMAIL }} --secret-key=${{ env.ONE_PASSWORD_SECRET_KEY }} --address=${{ env.ONE_PASSWORD_ACCOUNT_ADDRESS }}
+
+      - name: Check grant was revoked
+        run: ./baton-1password --password=${{ env.ONE_PASSWORD_PASSWORD }} --email=${{ env.ONE_PASSWORD_EMAIL }} --secret-key=${{ env.ONE_PASSWORD_SECRET_KEY }} --address=${{ env.ONE_PASSWORD_ACCOUNT_ADDRESS }} && baton grants --entitlement="${{ env.VAULT_ENTITLEMENT }}" --output-format=json | jq --exit-status 'if .grants then .grants[]?.principal.id.resource != "${{ env.PRINCIPAL }}" else . end'
+

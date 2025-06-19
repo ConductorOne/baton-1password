@@ -122,18 +122,16 @@ func (g *groupResourceType) Grants(ctx context.Context, resource *v2.Resource, _
 }
 
 func (o *groupResourceType) Grant(ctx context.Context, principal *v2.Resource, entitlement *v2.Entitlement) (annotations.Annotations, error) {
-	l := ctxzap.Extract(ctx)
-
 	if principal.Id.ResourceType != resourceTypeUser.Id {
-		l.Warn(
-			"baton-1password: only users can be granted group membership",
-			zap.String("principal_type", principal.Id.ResourceType),
-			zap.String("principal_id", principal.Id.Resource),
-		)
 		return nil, fmt.Errorf("baton-1password: only users can be granted group membership")
 	}
 
-	err := o.cli.AddUserToGroup(ctx, entitlement.Resource.Id.Resource, entitlement.Slug, principal.Id.Resource)
+	role, err := extractRoleFromEntitlementID(entitlement.Id)
+	if err != nil {
+		return nil, fmt.Errorf("could not extract role: %w", err)
+	}
+
+	err = o.cli.AddUserToGroup(ctx, entitlement.Resource.Id.Resource, role, principal.Id.Resource)
 
 	if err != nil {
 		return nil, fmt.Errorf("baton-1password: failed adding user to group")
