@@ -13,6 +13,24 @@ Check out [Baton](https://github.com/conductorone/baton) to learn more about the
 3. Installed 1Password [CLI Tool](https://developer.1password.com/docs/cli) on your local machine. For first time install please refer to the [Install](https://developer.1password.com/docs/cli/get-started/#install) chapter. It is not neccessary to do any other steps as the `baton-1password` will take care of creating an account and signing in.
    If you already have the CLI tool installed but need to upgrade it to the latest version please refer to [this](https://developer.1password.com/docs/cli/upgrade/) article.
 
+   IMPORTANT NOTE: If a service account is used, its token must be stored in a local environment variable (OP_SERVICE_ACCOUNT_TOKEN) in order for the 1Password CLI to authenticate properly:
+```
+            OP_SERVICE_ACCOUNT_TOKEN=your-service-account-token
+```
+
+## Connector capabilities
+
+- The connector can be authenticated using either a regular user account or a 1Password service account.
+
+- Sync Users, projects, groups and vaults.
+
+- Supports Groups provision
+
+- Support Vaults provision
+  IMPORTANT NOTE: Vault provisioning is limited with a service account:
+  When using a service account to run the connector, vault provisioning is limited by 1Password. Specifically, only vaults that were created by the same service account can be modified. 
+  Vaults that were created by other users or service accounts cannot be granted or revoked permissions using a service account.
+
 ## brew
 
 ```

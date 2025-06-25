@@ -6,11 +6,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAddPermissionDeps(t *testing.T) {
-	perms := addPermissionDeps("create_items")
-	require.Equal(t, "create_items,view_items", perms)
-	perms = addPermissionDeps("view_items")
-	require.Equal(t, "view_items", perms)
-	perms = addPermissionDeps("")
-	require.Equal(t, "", perms)
+func TestResolveDeps(t *testing.T) {
+	expected := []string{"view_items", "create_items"}
+	actual := resolveDeps("create_items", dependencyMap, make(map[string]bool))
+	require.Equal(t, expected, actual)
+
+	expected = []string{"view_items", "view_and_copy_passwords", "edit_items"}
+	actual = resolveDeps("edit_items", dependencyMap, make(map[string]bool))
+	require.Equal(t, expected, actual)
+
+	expected = []string{"manage_vault"}
+	actual = resolveDeps("manage_vault", dependencyMap, make(map[string]bool))
+	require.Equal(t, expected, actual)
+
+	expected = []string{""}
+	actual = resolveDeps("", dependencyMap, make(map[string]bool))
+	require.Equal(t, expected, actual)
 }
