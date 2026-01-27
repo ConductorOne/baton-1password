@@ -65,8 +65,7 @@ var (
 	FieldRelationships = []field.SchemaFieldRelationship{
 		field.FieldsRequiredTogether(EmailField, AddressField, KeyField, PasswordField),
 	}
-
-	ConfigurationSchema = field.Configuration{
-		Fields: ConfigurationFields,
-	}
 )
+
+//go:generate go run ./gen
+var Config = field.NewConfiguration(ConfigurationFields, field.WithConstraints(FieldRelationships...))
