@@ -6,14 +6,13 @@ import (
 	"os"
 
 	onepassword "github.com/conductorone/baton-1password/pkg/client"
-	config2 "github.com/conductorone/baton-1password/pkg/config"
+	cfg "github.com/conductorone/baton-1password/pkg/config"
 	"github.com/conductorone/baton-1password/pkg/connector"
 	"github.com/conductorone/baton-sdk/pkg/config"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
 	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
-	"github.com/spf13/viper"
 	"go.uber.org/zap"
 )
 
@@ -34,7 +33,7 @@ func main() {
 		ctx,
 		connectorName,
 		getConnector,
-		config2.Config,
+		cfg.Config,
 		connectorrunner.WithDefaultCapabilitiesConnectorBuilder(&connector.OnePassword{}),
 	)
 	if err != nil {
@@ -50,32 +49,30 @@ func main() {
 	}
 }
 
-func getConnector(ctx context.Context, v *viper.Viper) (types.ConnectorServer, error) {
+func getConnector(ctx context.Context, c *cfg.Onepassword) (types.ConnectorServer, error) {
 	l := ctxzap.Extract(ctx)
 
-	if err := validateVaultPermissions(v.GetStringSlice(config2.LimitVaultPermissionsField.FieldName), l); err != nil {
+	if err := validateVaultPermissions(c.LimitVaultPermissions, l); err != nil {
 		return nil, err
 	}
 
-	authType := v.GetString(config2.AuthTypeField.FieldName)
-
-	if err := validateConfigForAuthType(v, authType); err != nil {
+	if err := validateConfigForAuthType(c); err != nil {
 		return nil, err
 	}
 
 	providedAccountDetails := onepassword.NewAccount(
-		v.GetString(config2.AddressField.FieldName),
-		v.GetString(config2.EmailField.FieldName),
-		v.GetString(config2.KeyField.FieldName),
-		v.GetString(config2.PasswordField.FieldName),
+		c.Address,
+		c.Email,
+		c.SecretKey,
+		c.Password,
 	)
 
-	token, err := getAuthToken(ctx, authType, providedAccountDetails)
+	token, err := getAuthToken(ctx, c.AuthType, providedAccountDetails)
 	if err != nil {
 		return nil, err
 	}
 
-	cb, err := connector.New(ctx, authType, token, providedAccountDetails, v.GetStringSlice(config2.LimitVaultPermissionsField.FieldName))
+	cb, err := connector.New(ctx, c.AuthType, token, providedAccountDetails, c.LimitVaultPermissions)
 	if err != nil {
 		return nil, fmt.Errorf("error creating connector: %w", err)
 	}
@@ -119,33 +116,30 @@ func getAuthToken(ctx context.Context, authType string, acc *onepassword.Account
 	}
 }
 
-func validateConfigForAuthType(v *viper.Viper, authType string) error {
-	switch authType {
+func validateConfigForAuthType(c *cfg.Onepassword) error {
+	switch c.AuthType {
 	case authTypeUser:
-		requiredFields := map[string]string{
-			"address":  config2.AddressField.FieldName,
-			"email":    config2.EmailField.FieldName,
-			"key":      config2.KeyField.FieldName,
-			"password": config2.PasswordField.FieldName,
+		if c.Address == "" {
+			return fmt.Errorf("missing required field 'address' for auth-type 'user'")
 		}
-		for name, field := range requiredFields {
-			val := v.GetString(field)
-			if val == "" {
-				err := fmt.Errorf("missing required field '%s' for auth-type 'user'", name)
-				return err
-			}
+		if c.Email == "" {
+			return fmt.Errorf("missing required field 'email' for auth-type 'user'")
+		}
+		if c.SecretKey == "" {
+			return fmt.Errorf("missing required field 'secret-key' for auth-type 'user'")
+		}
+		if c.Password == "" {
+			return fmt.Errorf("missing required field 'password' for auth-type 'user'")
 		}
 
 	case authTypeService:
 		token := os.Getenv("OP_SERVICE_ACCOUNT_TOKEN")
 		if token == "" {
-			err := fmt.Errorf("missing environment variable OP_SERVICE_ACCOUNT_TOKEN required for auth-type 'service'")
-			return err
+			return fmt.Errorf("missing environment variable OP_SERVICE_ACCOUNT_TOKEN required for auth-type 'service'")
 		}
 
 	default:
-		err := fmt.Errorf("unsupported auth-type: %s", authType)
-		return err
+		return fmt.Errorf("unsupported auth-type: %s", c.AuthType)
 	}
 
 	return nil
