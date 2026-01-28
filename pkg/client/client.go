@@ -42,7 +42,7 @@ func GetLocalAccounts(ctx context.Context) ([]LocalAccountDetails, error) {
 	var err error
 	var output []byte
 
-	cmd := exec.Command("op", "accounts", "list", "--format=json")
+	cmd := exec.CommandContext(ctx, "op", "accounts", "list", "--format=json")
 	if output, err = cmd.Output(); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
@@ -97,7 +97,7 @@ func AddLocalAccount(ctx context.Context, providedAccountDetails *AccountDetails
 
 	args := []string{"account", "add", "--address", providedAccountDetails.address, "--email", providedAccountDetails.email, "--raw"}
 
-	addCmd := exec.Command("op", args...)
+	addCmd := exec.CommandContext(ctx, "op", args...)
 	if addIn, err = addCmd.StdinPipe(); err != nil {
 		return "", err
 	}
@@ -188,7 +188,7 @@ func SignIn(ctx context.Context, account string, providedAccountDetails *Account
 		pipeIn io.WriteCloser
 	)
 
-	cmd := exec.Command("op", "signin", "--account", account, "--raw")
+	cmd := exec.CommandContext(ctx, "op", "signin", "--account", account, "--raw")
 
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
@@ -398,7 +398,7 @@ func (c *OnePasswordClient) executeCommand(ctx context.Context, args []string, r
 
 	defaultArgs = append(args, defaultArgs...)
 
-	cmd := exec.Command("op", defaultArgs...) // #nosec
+	cmd := exec.CommandContext(ctx, "op", defaultArgs...) // #nosec G204
 	output, err := cmd.Output()
 	if err != nil {
 		var exitErr *exec.ExitError
