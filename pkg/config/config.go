@@ -31,12 +31,14 @@ var (
 	KeyField = field.StringField(
 		"secret-key",
 		field.WithDescription("Secret-key of your 1password account"),
+		field.WithIsSecret(true),
 		field.WithRequired(false),
 	)
 
 	PasswordField = field.StringField(
 		"password",
 		field.WithDescription("Password of your 1password account"),
+		field.WithIsSecret(true),
 		field.WithRequired(false),
 	)
 
