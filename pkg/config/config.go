@@ -31,12 +31,14 @@ var (
 	KeyField = field.StringField(
 		"secret-key",
 		field.WithDescription("Secret-key of your 1password account"),
+		field.WithIsSecret(true),
 		field.WithRequired(false),
 	)
 
 	PasswordField = field.StringField(
 		"password",
 		field.WithDescription("Password of your 1password account"),
+		field.WithIsSecret(true),
 		field.WithRequired(false),
 	)
 
@@ -65,8 +67,7 @@ var (
 	FieldRelationships = []field.SchemaFieldRelationship{
 		field.FieldsRequiredTogether(EmailField, AddressField, KeyField, PasswordField),
 	}
-
-	ConfigurationSchema = field.Configuration{
-		Fields: ConfigurationFields,
-	}
 )
+
+//go:generate go run ./gen
+var Config = field.NewConfiguration(ConfigurationFields, field.WithConstraints(FieldRelationships...))

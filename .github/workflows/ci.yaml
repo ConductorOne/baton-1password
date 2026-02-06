@@ -4,12 +4,12 @@ jobs:
   go-lint:
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
       - name: Install Go
         uses: actions/setup-go@v4
         with:
-          go-version: 1.23.x
-      - name: Checkout code
-        uses: actions/checkout@v3
+          go-version-file: 'go.mod'
       - name: Run linters
         uses: golangci/golangci-lint-action@v8
         with:
@@ -18,22 +18,21 @@ jobs:
   go-test:
     strategy:
       matrix:
-        go-version: [1.23.x]
         platform: [ubuntu-latest]
     runs-on: ${{ matrix.platform }}
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
       - name: Install Go
         if: success()
         uses: actions/setup-go@v4
         with:
-          go-version: ${{ matrix.go-version }}
-      - name: Checkout code
-        uses: actions/checkout@v3
+          go-version-file: 'go.mod'
       - name: go tests
         run: go test -v -covermode=count -json ./... > test.json
       - name: annotate go tests
         if: always()
-        uses: guyarb/golang-test-annotations@v0.5.1
+        uses: guyarb/golang-test-annotations@v0.6.0
         with:
           test-results: test.json
 
@@ -53,13 +52,13 @@ jobs:
       PRINCIPAL_TYPE: ${{ vars.PRINCIPAL_TYPE }}
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: 1.23.x
-
-      - name: Checkout code
-        uses: actions/checkout@v4
+          go-version-file: 'go.mod'
 
       - name: Install 1Password CLI
         run: |
@@ -97,7 +96,7 @@ jobs:
         run: ./baton-1password --password=${{ env.ONE_PASSWORD_PASSWORD }} --email=${{ env.ONE_PASSWORD_EMAIL }} --secret-key=${{ env.ONE_PASSWORD_SECRET_KEY }} --address=${{ env.ONE_PASSWORD_ACCOUNT_ADDRESS }}
 
       - name: Check grant was revoked
-        run: ./baton-1password --password=${{ env.ONE_PASSWORD_PASSWORD }} --email=${{ env.ONE_PASSWORD_EMAIL }} --secret-key=${{ env.ONE_PASSWORD_SECRET_KEY }} --address=${{ env.ONE_PASSWORD_ACCOUNT_ADDRESS }} && baton grants --entitlement="${{ env.GROUP_ENTITLEMENT }}" --output-format=json | jq --exit-status 'if .grants then .grants[]?.principal.id.resource != "${{ env.PRINCIPAL }}" else . end'
+        run: ./baton-1password --password=${{ env.ONE_PASSWORD_PASSWORD }} --email=${{ env.ONE_PASSWORD_EMAIL }} --secret-key=${{ env.ONE_PASSWORD_SECRET_KEY }} --address=${{ env.ONE_PASSWORD_ACCOUNT_ADDRESS }} && baton grants --entitlement="${{ env.GROUP_ENTITLEMENT }}" --output-format=json | jq --exit-status 'if .grants then .grants[]?.principal.id.resource \!= "${{ env.PRINCIPAL }}" else . end'
 
       - name: Grant entitlement Vault
         run: ./baton-1password --password=${{ env.ONE_PASSWORD_PASSWORD }} --email=${{ env.ONE_PASSWORD_EMAIL }} --secret-key=${{ env.ONE_PASSWORD_SECRET_KEY }} --address=${{ env.ONE_PASSWORD_ACCOUNT_ADDRESS }} --grant-entitlement=${{ env.VAULT_ENTITLEMENT }} --grant-principal=${{ env.PRINCIPAL }} --grant-principal-type=${{ env.PRINCIPAL_TYPE }}
@@ -115,5 +114,4 @@ jobs:
         run: ./baton-1password --password=${{ env.ONE_PASSWORD_PASSWORD }} --email=${{ env.ONE_PASSWORD_EMAIL }} --secret-key=${{ env.ONE_PASSWORD_SECRET_KEY }} --address=${{ env.ONE_PASSWORD_ACCOUNT_ADDRESS }}
 
       - name: Check grant was revoked
-        run: ./baton-1password --password=${{ env.ONE_PASSWORD_PASSWORD }} --email=${{ env.ONE_PASSWORD_EMAIL }} --secret-key=${{ env.ONE_PASSWORD_SECRET_KEY }} --address=${{ env.ONE_PASSWORD_ACCOUNT_ADDRESS }} && baton grants --entitlement="${{ env.VAULT_ENTITLEMENT }}" --output-format=json | jq --exit-status 'if .grants then .grants[]?.principal.id.resource != "${{ env.PRINCIPAL }}" else . end'
-
+        run: ./baton-1password --password=${{ env.ONE_PASSWORD_PASSWORD }} --email=${{ env.ONE_PASSWORD_EMAIL }} --secret-key=${{ env.ONE_PASSWORD_SECRET_KEY }} --address=${{ env.ONE_PASSWORD_ACCOUNT_ADDRESS }} && baton grants --entitlement="${{ env.VAULT_ENTITLEMENT }}" --output-format=json | jq --exit-status 'if .grants then .grants[]?.principal.id.resource \!= "${{ env.PRINCIPAL }}" else . end'
