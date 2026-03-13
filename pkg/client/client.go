@@ -435,7 +435,7 @@ func (c *OnePasswordClient) runCommand(ctx context.Context, args []string) ([]by
 
 	cmdArgs = append(cmdArgs, "--format=json")
 
-	cmd := exec.Command("op", cmdArgs...) // #nosec
+	cmd := exec.CommandContext(ctx, "op", cmdArgs...) // #nosec
 	output, err := cmd.Output()
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -462,7 +462,7 @@ func (c *OnePasswordClient) executeCommand(ctx context.Context, args []string, r
 		// If the session token has expired and we have account details to re-authenticate, retry once.
 		if c.authType == "user" && c.accountDetails != nil && isSessionExpiredError(err) {
 			if refreshErr := c.refreshToken(ctx); refreshErr != nil {
-				return fmt.Errorf("error: %w (token refresh also failed: %v)", err, refreshErr)
+				return fmt.Errorf("error: %w (token refresh also failed: %w)", err, refreshErr)
 			}
 
 			output, err = c.runCommand(ctx, args)
