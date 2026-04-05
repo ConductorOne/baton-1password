@@ -9,20 +9,37 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 )
 
-type OnePasswordClient struct {
-	authType string
-	token    string
+// isSessionExpiredError checks if the error from the op CLI indicates
+// that the session token has expired or is no longer valid.
+func isSessionExpiredError(err error) bool {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return false
+	}
+	stderr := string(exitErr.Stderr)
+	return strings.Contains(stderr, "no active session") ||
+		strings.Contains(stderr, "session expired") ||
+		strings.Contains(stderr, "not currently signed in") ||
+		strings.Contains(stderr, "Invalid session token")
 }
 
-func NewCli(authType string, token string) *OnePasswordClient {
+type OnePasswordClient struct {
+	authType       string
+	token          string
+	accountDetails *AccountDetails
+}
+
+func NewCli(authType string, token string, accountDetails *AccountDetails) *OnePasswordClient {
 	return &OnePasswordClient{
-		authType: authType,
-		token:    token,
+		authType:       authType,
+		token:          token,
+		accountDetails: accountDetails,
 	}
 }
 
@@ -42,7 +59,7 @@ func GetLocalAccounts(ctx context.Context) ([]LocalAccountDetails, error) {
 	var err error
 	var output []byte
 
-	cmd := exec.Command("op", "accounts", "list", "--format=json")
+	cmd := exec.CommandContext(ctx, "op", "accounts", "list", "--format=json")
 	if output, err = cmd.Output(); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
@@ -97,7 +114,7 @@ func AddLocalAccount(ctx context.Context, providedAccountDetails *AccountDetails
 
 	args := []string{"account", "add", "--address", providedAccountDetails.address, "--email", providedAccountDetails.email, "--raw"}
 
-	addCmd := exec.Command("op", args...)
+	addCmd := exec.CommandContext(ctx, "op", args...)
 	if addIn, err = addCmd.StdinPipe(); err != nil {
 		return "", err
 	}
@@ -188,7 +205,7 @@ func SignIn(ctx context.Context, account string, providedAccountDetails *Account
 		pipeIn io.WriteCloser
 	)
 
-	cmd := exec.Command("op", "signin", "--account", account, "--raw")
+	cmd := exec.CommandContext(ctx, "op", "signin", "--account", account, "--raw")
 
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
@@ -387,18 +404,38 @@ func (c *OnePasswordClient) RemoveUserFromVault(ctx context.Context, vault, user
 	return nil
 }
 
-func (c *OnePasswordClient) executeCommand(ctx context.Context, args []string, res interface{}) error {
+// refreshToken re-authenticates with 1Password and updates the stored token.
+func (c *OnePasswordClient) refreshToken(ctx context.Context) error {
 	l := ctxzap.Extract(ctx)
 
-	defaultArgs := []string{"--format=json"}
-
-	if c.authType == "user" {
-		args = append(args, []string{"--session", c.token}...)
+	if c.accountDetails == nil {
+		return fmt.Errorf("cannot refresh token: no account details available")
 	}
 
-	defaultArgs = append(args, defaultArgs...)
+	l.Debug("refreshing expired 1Password session token")
 
-	cmd := exec.Command("op", defaultArgs...) // #nosec
+	token, err := GetUserToken(ctx, c.accountDetails)
+	if err != nil {
+		return fmt.Errorf("failed to refresh session token: %w", err)
+	}
+
+	c.token = token
+	return nil
+}
+
+func (c *OnePasswordClient) runCommand(ctx context.Context, args []string) ([]byte, error) {
+	l := ctxzap.Extract(ctx)
+
+	cmdArgs := make([]string, len(args))
+	copy(cmdArgs, args)
+
+	if c.authType == "user" {
+		cmdArgs = append(cmdArgs, "--session", c.token)
+	}
+
+	cmdArgs = append(cmdArgs, "--format=json")
+
+	cmd := exec.CommandContext(ctx, "op", cmdArgs...) // #nosec
 	output, err := cmd.Output()
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -413,7 +450,28 @@ func (c *OnePasswordClient) executeCommand(ctx context.Context, args []string, r
 			)
 		}
 
-		return fmt.Errorf("error: %w", err)
+		return nil, err
+	}
+
+	return output, nil
+}
+
+func (c *OnePasswordClient) executeCommand(ctx context.Context, args []string, res interface{}) error {
+	output, err := c.runCommand(ctx, args)
+	if err != nil {
+		// If the session token has expired and we have account details to re-authenticate, retry once.
+		if c.authType == "user" && c.accountDetails != nil && isSessionExpiredError(err) {
+			if refreshErr := c.refreshToken(ctx); refreshErr != nil {
+				return fmt.Errorf("error: %w (token refresh also failed: %w)", err, refreshErr)
+			}
+
+			output, err = c.runCommand(ctx, args)
+			if err != nil {
+				return fmt.Errorf("error: %w", err)
+			}
+		} else {
+			return fmt.Errorf("error: %w", err)
+		}
 	}
 
 	if res == nil {
