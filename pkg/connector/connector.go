@@ -19,7 +19,7 @@ type OnePassword struct {
 
 func New(ctx context.Context, authType string, token string, providedAccountDetails *onepassword.AccountDetails, limitVaultPermissions []string) (*OnePassword, error) {
 	op := &OnePassword{
-		cli:            onepassword.NewCli(authType, token),
+		cli:            onepassword.NewCli(authType, token, providedAccountDetails),
 		accountDetails: providedAccountDetails,
 	}
 	if len(limitVaultPermissions) > 0 {
