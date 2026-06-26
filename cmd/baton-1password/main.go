@@ -10,6 +10,7 @@ import (
 	"github.com/conductorone/baton-1password/pkg/connector"
 	"github.com/conductorone/baton-sdk/pkg/config"
 	"github.com/conductorone/baton-sdk/pkg/connectorbuilder"
+	"github.com/conductorone/baton-sdk/pkg/connectorrunner"
 	"github.com/conductorone/baton-sdk/pkg/types"
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"github.com/spf13/viper"
@@ -34,6 +35,7 @@ func main() {
 		connectorName,
 		getConnector,
 		config2.ConfigurationSchema,
+		connectorrunner.WithDefaultCapabilitiesConnectorBuilder(&connector.OnePassword{}),
 	)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
