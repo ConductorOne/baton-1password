@@ -2,11 +2,15 @@ package grpc
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/lambda"
+	"github.com/aws/aws-sdk-go-v2/service/lambda/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -26,6 +30,7 @@ func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Respons
 	}
 
 	input := &lambda.InvokeInput{
+		LogType:      types.LogTypeTail,
 		FunctionName: aws.String(l.functionName),
 		Payload:      payload,
 	}
@@ -33,12 +38,45 @@ func (l *lambdaTransport) RoundTrip(ctx context.Context, req *Request) (*Respons
 	// Invoke the Lambda function.
 	invokeResp, err := l.lambdaClient.Invoke(ctx, input)
 	if err != nil {
+		if isTransientNetworkError(err) {
+			return nil, status.Errorf(codes.Unavailable, "lambda_transport: transient network error invoking function: %s", err)
+		}
 		return nil, fmt.Errorf("lambda_transport: failed to invoke lambda function: %w", err)
 	}
 
 	// Check if the function returned an error.
 	if invokeResp.FunctionError != nil {
-		return nil, fmt.Errorf("lambda_transport: function returned error: %v", *invokeResp.FunctionError)
+		logSummary := ""
+		if invokeResp.LogResult != nil {
+			decodedLog, err := base64.StdEncoding.DecodeString(*invokeResp.LogResult)
+			if err == nil {
+				logSummary = string(decodedLog)
+			}
+		}
+
+		filteredLogs := extractMeaningfulLogLines(logSummary)
+
+		// If payload contains "Task timed out after", return a retryable error.
+		// This means the lambda function timed out.
+		// Status code is 200 in this case, so we have to check the payload for a special string.
+		if strings.Contains(string(invokeResp.Payload), "Task timed out after") {
+			return nil, status.Errorf(codes.DeadlineExceeded, "lambda_transport: function timed out: %s; logSummary: %s", *invokeResp.FunctionError, filteredLogs)
+		}
+		// If log summary contains \"error\":\"context deadline exceeded\", return a retryable error.
+		if strings.Contains(filteredLogs, `\"error\":\"context deadline exceeded\"`) {
+			return nil, status.Errorf(codes.DeadlineExceeded, "lambda_transport: function timed out: %s; logSummary: %s", *invokeResp.FunctionError, filteredLogs)
+		}
+		// If a third case is ever added to this, put the logic in its own function and add some test cases.
+
+		if filteredLogs != "" {
+			return nil, fmt.Errorf("%s", filteredLogs)
+		}
+
+		return nil, fmt.Errorf(
+			"lambda_transport: function returned error: %s; status code: %d",
+			*invokeResp.FunctionError,
+			invokeResp.StatusCode,
+		)
 	}
 
 	resp := &Response{}
@@ -126,4 +164,45 @@ func NewClientConn(transport ClientTransport) grpc.ClientConnInterface {
 	return &clientConn{
 		t: transport,
 	}
+}
+
+var ignoredLogPrefixes = []string{
+	"START RequestId:",
+	"END RequestId:",
+	"REPORT RequestId:",
+	"INIT_REPORT",
+	"RequestId:",
+	"Duration:",
+	"Billed Duration:",
+	"Memory Size:",
+	"Max Memory Used:",
+}
+
+func extractMeaningfulLogLines(raw string) string {
+	lines := strings.Split(raw, "\n")
+	var filtered []string
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		if line == "" {
+			continue
+		}
+
+		if slices.ContainsFunc(ignoredLogPrefixes, func(prefix string) bool {
+			return strings.HasPrefix(line, prefix)
+		}) || strings.Contains(line, "Runtime.ExitError") {
+			continue
+		}
+
+		// Skip structured JSON log lines (zap logger output) - they are
+		// diagnostic context, not the actual error.
+		if strings.HasPrefix(line, "{") {
+			continue
+		}
+
+		filtered = append(filtered, line)
+	}
+
+	return strings.Join(filtered, "\n")
 }
