@@ -39,7 +39,7 @@ var basicPermissions = map[string]string{
 }
 
 // 1Password Business.
-var businessPermissions = map[string]string{
+var businessPermissions = map[string]string{ // #nosec G101 -- map of permission display names, not credentials
 	"view_items":              "view items",
 	"create_items":            "create items",
 	"edit_items":              "edit items",
