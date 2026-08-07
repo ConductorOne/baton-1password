@@ -38,15 +38,14 @@ func groupResource(group onepassword.Group, parentResourceID *v2.ResourceId) (*v
 		"group_id":   group.ID,
 	}
 
-	groupTraitOptions := []resource.GroupTraitOption{
-		resource.WithGroupProfile(profile),
-	}
+	groupTraitOptions := []resource.GroupTraitOption{}
 
 	ret, err := resource.NewGroupResource(
 		group.Name,
 		resourceTypeGroup,
 		group.ID,
 		groupTraitOptions,
+		resource.WithResourceProfile(profile),
 		resource.WithParentResourceID(parentResourceID),
 	)
 	if err != nil {
