@@ -51,8 +51,6 @@ func userResource(user onepassword.User, parentResourceID *v2.ResourceId) (*v2.R
 	}
 
 	userTraitOptions := []resource.UserTraitOption{
-		resource.WithUserProfile(profile),
-		resource.WithStatus(userStatus),
 		resource.WithEmail(user.Email, true),
 	}
 
@@ -61,6 +59,8 @@ func userResource(user onepassword.User, parentResourceID *v2.ResourceId) (*v2.R
 		resourceTypeUser,
 		user.ID,
 		userTraitOptions,
+		resource.WithResourceProfile(profile),
+		resource.WithResourceStatus(v2.Status_ResourceStatus(userStatus), ""),
 		resource.WithParentResourceID(parentResourceID),
 	)
 	if err != nil {
