@@ -16,6 +16,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const authTypeUser = "user"
+
 // sessionExpiredMessages are (lowercased) substrings `op` prints to stderr
 // when a --session token is stale or absent. The wording observed in
 // practice depends on *how* the session is missing, confirmed against a real
@@ -452,14 +454,17 @@ func redactSessionToken(args []string) []string {
 	return redacted
 }
 
-func (c *OnePasswordClient) runOpCommand(ctx context.Context, args []string) ([]byte, error) {
+// runOpCommand runs op with args. For user auth, token is passed as
+// --session; callers pass the token explicitly (rather than reading it here)
+// so that on failure they know exactly which token the command used.
+func (c *OnePasswordClient) runOpCommand(ctx context.Context, args []string, token string) ([]byte, error) {
 	l := ctxzap.Extract(ctx)
 
 	cmdArgs := make([]string, 0, len(args)+3)
 	cmdArgs = append(cmdArgs, args...)
 
-	if c.authType == "user" {
-		cmdArgs = append(cmdArgs, "--session", c.currentToken())
+	if c.authType == authTypeUser {
+		cmdArgs = append(cmdArgs, "--session", token)
 	}
 	cmdArgs = append(cmdArgs, "--format=json")
 
@@ -545,21 +550,25 @@ func (c *OnePasswordClient) refreshStaleSession(ctx context.Context, staleToken 
 func (c *OnePasswordClient) executeCommand(ctx context.Context, args []string, res interface{}) error {
 	l := ctxzap.Extract(ctx)
 
-	if c.authType == "user" && c.sessionRefreshBroken() {
+	if c.authType == authTypeUser && c.sessionRefreshBroken() {
 		return fmt.Errorf("error: op session refresh already failed once this run; aborting sync instead of retrying signin again (command: %v)", redactSessionToken(args))
 	}
 
-	output, err := c.runOpCommand(ctx, args)
-	if err != nil && c.authType == "user" && c.accountDetails != nil && isSessionExpiredError(err) {
+	// Capture the token before running the command: if it fails as stale,
+	// this is the token to compare against in refreshStaleSession. Reading it
+	// after the failure could pick up a token another goroutine already
+	// refreshed, triggering a redundant signin.
+	usedToken := c.currentToken()
+	output, err := c.runOpCommand(ctx, args, usedToken)
+	if err != nil && c.authType == authTypeUser && c.accountDetails != nil && isSessionExpiredError(err) {
 		l.Warn("op session expired mid-sync, re-authenticating and retrying", zap.Strings("command_args", redactSessionToken(args)))
 
-		staleToken := c.currentToken()
-		if signInErr := c.refreshStaleSession(ctx, staleToken); signInErr != nil {
-			l.Error("op session refresh failed; disabling further signin attempts for this sync run", zap.Error(signInErr))
-			return fmt.Errorf("error: %w (session refresh failed: %v)", err, signInErr)
+		// GetUserToken/SignIn already log the signin failure, so it is not logged again here.
+		if signInErr := c.refreshStaleSession(ctx, usedToken); signInErr != nil {
+			return fmt.Errorf("error: %w (session refresh failed: %w)", err, signInErr)
 		}
 
-		output, err = c.runOpCommand(ctx, args)
+		output, err = c.runOpCommand(ctx, args, c.currentToken())
 	}
 	if err != nil {
 		return fmt.Errorf("error: %w", err)
