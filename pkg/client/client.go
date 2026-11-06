@@ -473,7 +473,13 @@ func (c *OnePasswordClient) runOpCommand(ctx context.Context, args []string, tok
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			l.Error(
+			// A stale session is expected and handled by executeCommand (which
+			// logs a Warn and re-signs in), so don't log it at Error here.
+			logFn := l.Error
+			if isSessionExpiredError(err) {
+				logFn = l.Debug
+			}
+			logFn(
 				"error executing command",
 				zap.Error(err),
 				zap.String("stderr", string(exitErr.Stderr)),
