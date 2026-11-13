@@ -9,20 +9,65 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
+	"sync"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/logging/zap/ctxzap"
 	"go.uber.org/zap"
 )
 
-type OnePasswordClient struct {
-	authType string
-	token    string
+const authTypeUser = "user"
+
+// sessionExpiredMessages are (lowercased) substrings `op` prints to stderr
+// when a --session token is stale or absent. The wording observed in
+// practice depends on *how* the session is missing, confirmed against a real
+// op CLI 2.42.0 failure in this connector's own deployment:
+//   - "no active session found for account <name>" (exit code 1) — when a
+//     --session <token> flag IS passed but the token itself is stale/invalid.
+//     This is the one this connector actually hits, since runOpCommand always
+//     passes --session.
+//   - "you are not currently signed in...op signin --help..." (exit code 7,
+//     observed on op CLI 2.x 2022-2026 per GitHub issue reports) — when no
+//     --session is passed at all. Kept as a fallback in case of CLI version
+//     or invocation differences.
+var sessionExpiredMessages = []string{
+	"no active session found",
+	"you are not currently signed in",
 }
 
-func NewCli(authType string, token string) *OnePasswordClient {
+type OnePasswordClient struct {
+	authType string
+
+	// tokenMu guards token and sessionBroken. Resource builders
+	// (user/group/account/vault) all share one *OnePasswordClient, and the
+	// SDK can run their syncs concurrently (--parallel-sync / --worker-count),
+	// so a session refresh triggered by one goroutine must not race with a
+	// read/write from another.
+	tokenMu sync.Mutex
+	token   string
+
+	// sessionBroken trips after a re-signin attempt itself fails (as opposed
+	// to the session simply expiring, which is expected and retried once).
+	// 1Password doesn't publish a failed-signin lockout threshold for `op
+	// signin`, so rather than guess a retry count, we stop trying entirely
+	// after the first failed refresh: every subsequent call fails fast
+	// without another signin attempt, bounding a single sync run to at most
+	// one extra `op signin` beyond the one at startup. A fresh process (the
+	// next hourly sync) gets a clean sessionBroken state and tries again.
+	sessionBroken bool
+
+	// accountDetails is only set for authType "user". It lets executeCommand
+	// transparently re-run `op signin` and retry once when the cached
+	// session token expires mid-sync (op user sessions expire after 30
+	// minutes of inactivity, which can be shorter than a single sync run).
+	accountDetails *AccountDetails
+}
+
+func NewCli(authType string, token string, accountDetails *AccountDetails) *OnePasswordClient {
 	return &OnePasswordClient{
-		authType: authType,
-		token:    token,
+		authType:       authType,
+		token:          token,
+		accountDetails: accountDetails,
 	}
 }
 
@@ -387,32 +432,151 @@ func (c *OnePasswordClient) RemoveUserFromVault(ctx context.Context, vault, user
 	return nil
 }
 
-func (c *OnePasswordClient) executeCommand(ctx context.Context, args []string, res interface{}) error {
+// currentToken returns the session token under lock, so concurrent syncs of
+// different resource types never read a token mid-write by a refresh.
+func (c *OnePasswordClient) currentToken() string {
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
+	return c.token
+}
+
+// redactSessionToken returns args with any value following "--session"
+// masked, for safe inclusion in logs. The session token is a bearer
+// credential and must never be written out in full.
+func redactSessionToken(args []string) []string {
+	redacted := make([]string, len(args))
+	copy(redacted, args)
+	for i, a := range redacted {
+		if a == "--session" && i+1 < len(redacted) {
+			redacted[i+1] = "REDACTED" // matches the convention used by baton-sdk's uhttp.RedactSensitiveHeaders
+		}
+	}
+	return redacted
+}
+
+// runOpCommand runs op with args. For user auth, token is passed as
+// --session; callers pass the token explicitly (rather than reading it here)
+// so that on failure they know exactly which token the command used.
+func (c *OnePasswordClient) runOpCommand(ctx context.Context, args []string, token string) ([]byte, error) {
 	l := ctxzap.Extract(ctx)
 
-	defaultArgs := []string{"--format=json"}
+	cmdArgs := make([]string, 0, len(args)+3)
+	cmdArgs = append(cmdArgs, args...)
 
-	if c.authType == "user" {
-		args = append(args, []string{"--session", c.token}...)
+	if c.authType == authTypeUser {
+		cmdArgs = append(cmdArgs, "--session", token)
 	}
+	cmdArgs = append(cmdArgs, "--format=json")
 
-	defaultArgs = append(args, defaultArgs...)
-
-	cmd := exec.CommandContext(ctx, "op", defaultArgs...)
+	cmd := exec.CommandContext(ctx, "op", cmdArgs...)
 	output, err := cmd.Output()
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			l.Error(
+			// A stale session is expected and handled by executeCommand (which
+			// logs a Warn and re-signs in), so don't log it at Error here.
+			logFn := l.Error
+			if isSessionExpiredError(err) {
+				logFn = l.Debug
+			}
+			logFn(
 				"error executing command",
 				zap.Error(err),
 				zap.String("stderr", string(exitErr.Stderr)),
 				zap.String("stdout", string(output)),
 				zap.Int("exit_code", exitErr.ExitCode()),
-				zap.Strings("command_args", cmd.Args),
+				zap.Strings("command_args", redactSessionToken(cmd.Args)),
 			)
 		}
 
+		return output, err
+	}
+
+	return output, nil
+}
+
+// isSessionExpiredError reports whether err is an `op` exit error caused by a
+// stale or missing --session token, as opposed to any other failure (bad
+// args, network error, permission denial, etc).
+func isSessionExpiredError(err error) bool {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return false
+	}
+
+	stderr := strings.ToLower(string(exitErr.Stderr))
+	for _, msg := range sessionExpiredMessages {
+		if strings.Contains(stderr, msg) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// sessionRefreshBroken reports whether a prior refresh attempt already
+// failed this run, so callers can fail fast instead of signing in again.
+func (c *OnePasswordClient) sessionRefreshBroken() bool {
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
+	return c.sessionBroken
+}
+
+// refreshStaleSession re-authenticates if the live token still matches
+// staleToken. If another goroutine already refreshed it first (possible
+// under --parallel-sync, since all resource builders share one client), this
+// is a no-op and the caller retries with the already-fresh token.
+//
+// A failed refresh permanently trips sessionBroken for this client: 1Password
+// publishes no failed-signin lockout threshold for `op signin`, so rather
+// than guess how many retries are safe, a single failure here stops all
+// further signin attempts for the rest of this process's life.
+func (c *OnePasswordClient) refreshStaleSession(ctx context.Context, staleToken string) error {
+	c.tokenMu.Lock()
+	defer c.tokenMu.Unlock()
+
+	if c.sessionBroken {
+		return fmt.Errorf("op session refresh previously failed this run; not retrying signin")
+	}
+
+	if c.token != staleToken {
+		return nil
+	}
+
+	token, err := GetUserToken(ctx, c.accountDetails)
+	if err != nil {
+		c.sessionBroken = true
+		return err
+	}
+
+	c.token = token
+	return nil
+}
+
+func (c *OnePasswordClient) executeCommand(ctx context.Context, args []string, res interface{}) error {
+	l := ctxzap.Extract(ctx)
+
+	if c.authType == authTypeUser && c.sessionRefreshBroken() {
+		return fmt.Errorf("error: op session refresh already failed once this run; aborting sync instead of retrying signin again (command: %v)", redactSessionToken(args))
+	}
+
+	// Capture the token before running the command: if it fails as stale,
+	// this is the token to compare against in refreshStaleSession. Reading it
+	// after the failure could pick up a token another goroutine already
+	// refreshed, triggering a redundant signin.
+	usedToken := c.currentToken()
+	output, err := c.runOpCommand(ctx, args, usedToken)
+	if err != nil && c.authType == authTypeUser && c.accountDetails != nil && isSessionExpiredError(err) {
+		l.Warn("op session expired mid-sync, re-authenticating and retrying", zap.Strings("command_args", redactSessionToken(args)))
+
+		// GetUserToken/SignIn already log the signin failure, so it is not logged again here.
+		if signInErr := c.refreshStaleSession(ctx, usedToken); signInErr != nil {
+			return fmt.Errorf("error: %w (session refresh failed: %w)", err, signInErr)
+		}
+
+		output, err = c.runOpCommand(ctx, args, c.currentToken())
+	}
+	if err != nil {
 		return fmt.Errorf("error: %w", err)
 	}
 
