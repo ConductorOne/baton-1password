@@ -13,14 +13,12 @@ import (
 
 type OnePassword struct {
 	cli                   *onepassword.OnePasswordClient
-	accountDetails        *onepassword.AccountDetails
 	limitVaultPermissions mapset.Set[string]
 }
 
 func New(ctx context.Context, authType string, token string, providedAccountDetails *onepassword.AccountDetails, limitVaultPermissions []string) (*OnePassword, error) {
 	op := &OnePassword{
-		cli:            onepassword.NewCli(authType, token),
-		accountDetails: providedAccountDetails,
+		cli: onepassword.NewCli(authType, token, providedAccountDetails),
 	}
 	if len(limitVaultPermissions) > 0 {
 		op.limitVaultPermissions = mapset.NewSet(limitVaultPermissions...)
